@@ -13,6 +13,10 @@ class Comentario(SQLModel, table=True):
     interno: bool = Field(default=False)
     criado_em: datetime = Field(default_factory= lambda: datetime.now(timezone.utc))
 
+    ticket: "Ticket" = Relationship(
+        back_populates="comentarios"
+    )
+
     agente: "Agente" = Relationship(
         back_populates="comentarios"
     )

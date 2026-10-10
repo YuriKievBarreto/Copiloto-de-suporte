@@ -35,6 +35,8 @@ qdrant_storage/
 pgdata/
 *.sqlite3
 
+tasks.md
+
 # --- Resultados gerados (avaliação, logs) ---
 eval/results/
 logs/

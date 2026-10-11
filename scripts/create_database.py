@@ -1,4 +1,4 @@
-from app.core.database import create_tables
+from app.core.database.relational_database import create_tables
 
 if __name__ == "__main__":
     print("criando tabelas...")

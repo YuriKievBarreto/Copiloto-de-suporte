@@ -67,6 +67,3 @@ def chunk_all_documents(path: str):
     return todos
 
 
-
-todos = chunk_all_documents("rag_documents")
-

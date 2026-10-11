@@ -7,6 +7,9 @@ from app import models
 def get_engine():
     return create_engine(get_settings().sqlalchemy_url)
 
+def get_agent_engine():
+    return create_engine(get_settings().agent_sqlalchemy_url)
+
 
 def create_tables():
     engine = get_engine()

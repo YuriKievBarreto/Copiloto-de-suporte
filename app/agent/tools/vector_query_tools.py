@@ -1,9 +1,9 @@
 from langchain_core.tools import tool
-from app.core.database.vector_database import vector_store
+from app.core.database.vector_database import get_vector_store
 from langchain_core.documents import Document
 from langchain_core.tools import tool
 
-retriever = vector_store.as_retriever()
+retriever = get_vector_store().as_retriever()
 
 
 

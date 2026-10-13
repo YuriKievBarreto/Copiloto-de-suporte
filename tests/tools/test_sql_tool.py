@@ -1,6 +1,6 @@
 from app.agent.tools.sql_tools import execute_sql, get_schema
 import pytest
-
+from sqlalchemy.exc import OperationalError
 # executa sql normalemente
 # proíbe ações diferentes de SELECT
 
@@ -32,3 +32,11 @@ def test_get_schema_retorna_tabelas(seed_data):
         
         assert "Table: clientes" in schema
         assert "Table: tickets" in schema
+
+
+def test_consulta_malformada_devolve_erro_como_texto(seed_data):
+    with pytest.raises(OperationalError) as exc_info:
+        execute_sql.invoke({"sql": "SELECT id FOM tickets"})
+
+    assert "syntax error" in str(exc_info.value)
+    

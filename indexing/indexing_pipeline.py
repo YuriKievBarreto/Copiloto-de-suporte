@@ -1,9 +1,9 @@
-from app.core.database.vector_database import vector_store
+from app.core.database.vector_database import get_vector_store
 from tqdm import tqdm
 import uuid
 from collections import defaultdict
 from indexing.chunking import chunk_all_documents
-
+vector_store = get_vector_store()
 DOCUMENTS_PATH = "rag_documents"
 
 def make_ids(chunks) -> list[str]:

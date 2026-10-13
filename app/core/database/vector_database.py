@@ -15,22 +15,25 @@ embeddings = HuggingFaceEmbeddings(
 collection_name = "manuais"
 
 
-client = QdrantClient(url="http://localhost:6333")
 
-if not client.collection_exists(collection_name):
-    client.create_collection(
-        collection_name=collection_name,
-        vectors_config=VectorParams(
-            size=1024,
-            distance=Distance.COSINE
+def get_vector_store():
+    client = QdrantClient(url="http://localhost:6333")
+
+    if not client.collection_exists(collection_name):
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(
+                size=1024,
+                distance=Distance.COSINE
+            )
         )
+
+    vector_store = QdrantVectorStore(
+        client=client,
+        collection_name=collection_name,
+        embedding=embeddings
     )
 
-vector_store = QdrantVectorStore(
-    client=client,
-    collection_name=collection_name,
-    embedding=embeddings
-)
-
+    return vector_store
 
 

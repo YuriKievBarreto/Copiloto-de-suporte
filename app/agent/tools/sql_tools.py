@@ -95,5 +95,3 @@ def execute_sql(sql: str) -> list[dict[str, Any]]:
         result = session.exec(text(sql))
         return [dict(row) for row in result.mappings().all()]
 
-if __name__ == "__main__":
-    print(get_schema())

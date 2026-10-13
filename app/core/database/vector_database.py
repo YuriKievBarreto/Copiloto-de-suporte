@@ -31,3 +31,6 @@ vector_store = QdrantVectorStore(
     collection_name=collection_name,
     embedding=embeddings
 )
+
+
+

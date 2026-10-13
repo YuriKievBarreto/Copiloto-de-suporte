@@ -6,7 +6,7 @@ from typing import Any
 from langchain_core.tools import tool
 
 
-
+@tool
 def get_schema() -> str:
     """
     This tool returns all table names and its collumn names

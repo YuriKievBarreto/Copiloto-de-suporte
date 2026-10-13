@@ -28,7 +28,7 @@ def test_proibe_sql_diferente_de_select(seed_data):
 
 
 def test_get_schema_retorna_tabelas(seed_data):
-        schema = get_schema()
+        schema = get_schema.invoke({})
         
         assert "Table: clientes" in schema
         assert "Table: tickets" in schema

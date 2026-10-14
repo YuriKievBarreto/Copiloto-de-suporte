@@ -44,9 +44,14 @@ def get_schema() -> str:
         columns = inspector.get_columns(table_name)
 
         for column in columns:
-            schema.append(
-                f"  - {column['name']}: {column['type']}"
-            )
+            tipo = column["type"]
+            valores = getattr(tipo, "enums", None)
+            if valores:
+                schema.append(
+                    f"  - {column['name']}: {tipo} (valores permitidos: {', '.join(valores)})"
+                )
+            else:
+                schema.append(f"  - {column['name']}: {tipo}")
 
         foreign_keys = inspector.get_foreign_keys(table_name)
 
@@ -69,29 +74,57 @@ def get_schema() -> str:
 
 
 
+import json
+import re
+
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+
+MAX_ROWS = 50
+
+
 @tool
-def execute_sql(sql: str) -> list[dict[str, Any]]:
+def execute_sql(sql: str) -> str:
     """
-    Execute the provided SQL against the database.
-    Use this tool when you must retrieve information from database to answer the user's question.
-    If you don't know the table names and its columns, execute first the 'get_schema' tool to understand the database architecture
-    
+    Execute one read-only SQL query (PostgreSQL dialect) against the tickets database.
+    Use this tool when you must retrieve information from the database to answer the user's question.
+    If you don't know the table names and their columns, execute first the 'get_schema' tool.
+
+    Rules:
+    - Send a single SELECT statement (WITH ... SELECT is accepted), without semicolons.
+    - In queries with more than one table, qualify columns with table aliases and check
+      each column in the schema before using it.
+    - Columns listed with "valores permitidos" are enums: compare with = or IN, using exactly
+      the listed values. Do not use LIKE or ILIKE on them.
+    - At most 50 rows are returned.
 
     Returns:
-        this tool returns a list of dicts containing the query results
+        A JSON list of rows, or a message starting with 'Erro' if the query failed.
+        If it failed, read the message, fix the query and try again.
         example:
         using the following query:
-            'SELECT name, city FROM customers LIMIT 10;'
-            the result follows this structure:
-            [{'name': 'Henrique Silva', 'city': 'Uberlândia'}, {'name': 'Gabriela Freitas', 'city': 'Guarulhos'}]
+            'SELECT status, COUNT(*) AS total FROM tickets GROUP BY status'
+        the result follows this structure:
+            '[{"status": "ABERTO", "total": 12}, {"status": "FECHADO", "total": 40}]'
     """
+    query = sql.strip().rstrip(";").strip()
+
+    if ";" in query or not re.match(r"(?is)^(select|with)\b", query):
+        return ("Erro: envie uma única consulta SELECT (WITH ... SELECT também é aceito), "
+                "sem ponto e vírgula no meio.")
+
     engine = get_agent_engine()
-    with Session(engine) as session:
-        normalized = sql.strip().lower()
+    try:
+        with Session(engine) as session:
+            if engine.dialect.name == "postgresql":
+                session.exec(text("SET TRANSACTION READ ONLY"))
+                session.exec(text("SET LOCAL statement_timeout = '10s'"))
+            result = session.exec(text(f"SELECT * FROM ({query}) AS t LIMIT {MAX_ROWS}"))
+            rows = [dict(row) for row in result.mappings().all()]
+    except DBAPIError as e:
+        msg = f"Erro SQL: {e.orig}"
+        if "invalid input value for enum" in msg:
+            msg += "\nDica: chame get_schema e use exatamente os valores permitidos da coluna."
+        return msg
 
-        if not normalized.startswith("select"):
-            raise ValueError("Only SELECT queries are allowed.")
-        
-        result = session.exec(text(sql))
-        return [dict(row) for row in result.mappings().all()]
-
+    return json.dumps(rows, default=str, ensure_ascii=False)

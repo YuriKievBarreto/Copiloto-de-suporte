@@ -32,9 +32,11 @@ htmlcov/
 # --- Dados locais dos bancos ---
 chroma_db/
 qdrant_storage/
+test_questions.csv
 pgdata/
 *.sqlite3
-
+basic_react_agent.py
+run_agent_tests.py
 tasks.md
 
 # --- Resultados gerados (avaliação, logs) ---

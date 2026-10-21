@@ -44,6 +44,10 @@ eval/results/
 logs/
 *.log
 
+# --- Antigravity / Agent rules ---
+GEMINI.md
+AGENTS.md
+
 # --- IDEs e editores ---
 .vscode/
 .idea/

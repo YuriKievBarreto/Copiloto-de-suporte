@@ -35,6 +35,7 @@ def get_schema() -> str:
         - FK: order_id → orders.id
         - FK: product_id → products.id
     """
+
     schema = []
     inspector = inspect(get_agent_engine())
 

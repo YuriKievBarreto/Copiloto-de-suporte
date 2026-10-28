@@ -14,7 +14,7 @@ def generate_sql_node(state: SQLAgentState):
 
 
     user = state["question"]
-    if state["error"]: 
+    if state.get("error"):
         user +=  f"\n\nSua tentativa anterior falhou.\nSQL: {state['sql']}\nErro: {state['error']}\nCorrija o SQL."
 
     resposta = getLLM().invoke([

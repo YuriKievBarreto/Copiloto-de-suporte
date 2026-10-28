@@ -13,3 +13,13 @@ class SQLAgentState(TypedDict):
     result: list[dict[str, Any]] | None
     error: str | None
     attempts: int
+
+
+def initial_sql_state(question: str) -> SQLAgentState:
+    return {
+        "question": question,
+        "sql": "",
+        "result": None,
+        "error": None,
+        "attempts": 0,
+    }

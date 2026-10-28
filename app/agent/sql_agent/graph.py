@@ -30,14 +30,3 @@ def get_sql_agent_graph():
     return graph
 
 
-graph = get_sql_agent_graph()
-
-
-out = graph.invoke({
-    "question": "Quantos tickets foram abertos este mês?",
-    "sql": "",
-    "result": None,
-    "error": None,
-    "attempts": 0,
-})
-print(out)

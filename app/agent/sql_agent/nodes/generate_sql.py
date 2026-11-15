@@ -3,6 +3,7 @@ from app.agent.llm import getLLM
 from app.core.database.relational_database import get_agent_engine
 from app.agent.sql_agent.prompts.generate_sql import SQL_SYSTEM_PROMPT
 from datetime import date
+from functools import cache
 from sqlalchemy import inspect
 
 llm = getLLM()
@@ -29,7 +30,7 @@ def generate_sql_node(state: SQLAgentState):
 
 
 
-
+@cache
 def get_schema() -> str:
     schema = []
     inspector = inspect(get_agent_engine())

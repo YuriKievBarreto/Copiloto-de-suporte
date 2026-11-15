@@ -6,6 +6,7 @@ from app.agent.planner.nodes.planner_node import planner
 from app.agent.planner.nodes.executor_node import executor
 from app.agent.prompts.synthesis_prompt import SYNTHESIS_PROMPT
 from app.agent.llm import getLLM
+from app.agent.planner.nodes.replanner_node import replanner_node
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,8 +16,7 @@ logger = logging.getLogger(__name__)
 
 llm = getLLM()
 
-
-# ── Arestas Condicionais ──────────────────────────────────────────
+MAX_REPLANS = 2
 
 def route_after_planner(state: AgentState) -> str:
     plan = state["plan"]
@@ -28,6 +28,16 @@ def route_after_planner(state: AgentState) -> str:
 def route_after_executor(state: AgentState) -> str:
     plan = state["plan"]
     idx = state["current_step_index"]
+
+    failed_steps = state.get("failed_steps") or []
+    replan_count = state.get("replan_count") or 0
+    if failed_steps:
+        if replan_count < MAX_REPLANS:
+            return "replanner"
+        else:
+            return "synthesis"
+
+
     steps = plan.steps
     if idx >= len(steps):
         return "synthesis"
@@ -37,7 +47,13 @@ def route_after_executor(state: AgentState) -> str:
     return "executor"
 
 
-# ── Nós ───────────────────────────────────────────────────────────
+
+def route_after_replanner(state: AgentState):
+    plan = state["plan"]
+    if plan.out_of_scope:
+        return "recusa"
+    return "executor"
+
 
 def recusa(state: AgentState) -> dict:
     return {"answer": "Desculpe, esta solicitação está fora do meu domínio."}
@@ -54,7 +70,7 @@ def synthesis(state: AgentState) -> dict:
     return {"answer": res.content}
 
 
-# ── Grafo do Planner ──────────────────────────────────────────────
+
 
 def get_planner_graph():
     builder = StateGraph(AgentState)
@@ -63,7 +79,7 @@ def get_planner_graph():
     builder.add_node("executor", executor)
     builder.add_node("recusa", recusa)
     builder.add_node("synthesis_node", synthesis)
-
+    builder.add_node("replanner", replanner_node)
     builder.add_edge(START, "planner")
 
     builder.add_conditional_edges(
@@ -75,7 +91,13 @@ def get_planner_graph():
     builder.add_conditional_edges(
         "executor",
         route_after_executor,
-        {"executor": "executor", "synthesis": "synthesis_node"}
+        {"executor": "executor", "synthesis": "synthesis_node", "replanner": "replanner"}
+    )
+
+    builder.add_conditional_edges(
+        "replanner",
+        route_after_replanner,
+        {"executor": "executor", "synthesis": "synthesis_node", "recusa": "recusa"}
     )
 
     builder.add_edge("recusa", END)
@@ -92,9 +114,10 @@ def get_router_graph():
 if __name__ == "__main__":
     import traceback
     p_graph = get_planner_graph()
-    try:
+    print(p_graph.get_graph().draw_mermaid())
+    """try:
         res = p_graph.invoke({"question": "Quais tickets de cobrança ainda abertos estão fora do prazo de atendimento definido na política?"})
         print("\nRESPOSTA:\n", res["answer"])
     except Exception as e:
         print("\n❌ ERRO DETECTADO:")
-        traceback.print_exc()
+        traceback.print_exc()"""

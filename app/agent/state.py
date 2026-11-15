@@ -10,4 +10,7 @@ class AgentState(TypedDict):
     observations: dict[int, Any]
     sql_evidence: Optional[dict]
     rag_evidence: Optional[dict]
+    replan_count: int
+    errors: dict[int, str]
+    failed_steps: list[int]
     answer: str

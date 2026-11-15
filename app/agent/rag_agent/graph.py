@@ -45,3 +45,4 @@ def get_rag_agent_graph():
 
     rag_agent_graph = builder.compile()
     return rag_agent_graph
+

@@ -33,6 +33,7 @@ def _run_sql(step: PlanStep, state: AgentState) -> dict:
 
     try:
         res = sql_graph.invoke(initial_sql_state(question_with_context))
+        
         ok = res.get("error") is None and res.get("result") is not None
         return {
             "status": "success" if ok else "failed",
@@ -75,6 +76,10 @@ def executor(state: AgentState) -> dict:
 
     step = steps[idx]
     observations = dict(state.get("observations") or {})
+    errors = dict(state.get("errors") or {})
+    failed_steps = list(state.get("failed_steps") or [])
+    completed_steps = list(state.get("completed_steps") or [])
+
     sql_evidence = state.get("sql_evidence")
     rag_evidence = state.get("rag_evidence")
 
@@ -82,66 +87,38 @@ def executor(state: AgentState) -> dict:
 
     if step.action == StepAction.SQL:
         result = _run_sql(step, state)
+        if result.get("status") == "failed":
+            errors[step.step_id] = result["error"]
+            failed_steps.append(step.step_id)
+
+        else:
+            completed_steps.append(step.step_id)
+
         observations[step.step_id] = result
         sql_evidence = result
+       
 
     elif step.action == StepAction.QDRANT:
         result = _run_qdrant(step, state)
+        if result.get("status") == "failed":
+            errors[step.step_id] = result["error"]
+            failed_steps.append(step.step_id)
+
+        else:
+            completed_steps.append(step.step_id)
+
+
         observations[step.step_id] = result
         rag_evidence = result
 
     return {
         "current_step_index": idx + 1,
-        "completed_steps": state.get("completed_steps", []) + [step.step_id],
+        "completed_steps": completed_steps,
         "observations": observations,
         "sql_evidence": sql_evidence,
-        "rag_evidence": rag_evidence
+        "rag_evidence": rag_evidence,
+        "errors": errors,
+        "failed_steps": failed_steps
     }
 
 
-if __name__ == "__main__":
-    import traceback
-    from app.agent.planner.schemas import Plan, PlanStep
-
-    # 1. Cria um plano simulado (como se tivesse vindo do nó planner)
-    plano_exemplo = Plan(
-        reasoning="Plano de teste: primeiro busca os dados no banco SQL",
-        steps=[
-            PlanStep(
-                step_id=1,
-                action=StepAction.SQL,
-                description="Buscar tickets com status aberto",
-                depends_on=[]
-            ),
-            PlanStep(
-                step_id=2,
-                action=StepAction.SYNTHESIZE,
-                description="Sintetizar a resposta",
-                depends_on=[1]
-            )
-        ]
-    )
-
-    # 2. Monta o estado inicial que o executor espera receber
-    estado_inicial: AgentState = {
-        "question": "Quantos tickets abertos existem atualmente?",
-        "plan": plano_exemplo,
-        "current_step_index": 0,
-        "completed_steps": [],
-        "observations": {},
-        "sql_evidence": None,
-        "rag_evidence": None,
-        "answer": ""
-    }
-
-    try:
-        print("--- Executando o primeiro passo do plano com o executor() ---")
-        resultado_parcial = executor(estado_inicial)
-
-        print("\n✅ Passo executado com sucesso!")
-        print("Próximo índice de passo (current_step_index):", resultado_parcial["current_step_index"])
-        print("Passos concluídos:", resultado_parcial["completed_steps"])
-        print("Evidência SQL capturada:", resultado_parcial["sql_evidence"])
-    except Exception as e:
-        print("\n❌ ERRO DETECTADO:")
-        traceback.print_exc()

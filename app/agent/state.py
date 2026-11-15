@@ -1,19 +1,13 @@
-from langgraph.graph import StateGraph
-from typing import TypedDict
-from enum import StrEnum
-
-class Routes(StrEnum):
-    SQL = "sql"
-    QDRANT = "qdrant"
-    BOTH = "both"
-    OUT_OF_SCOPE = "out_of_scope"
+from typing import TypedDict, Optional, Any
+from app.agent.planner.schemas import Plan
 
 
-
-class RouterState(TypedDict):
+class AgentState(TypedDict):
     question: str
-    route: Routes
-    route_reason: str
-    sql_evidence: str
-    rag_evidence: str
+    plan: Optional[Plan]
+    current_step_index: int
+    completed_steps: list[int]
+    observations: dict[int, Any]
+    sql_evidence: Optional[dict]
+    rag_evidence: Optional[dict]
     answer: str

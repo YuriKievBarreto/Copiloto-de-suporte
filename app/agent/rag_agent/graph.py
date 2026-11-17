@@ -27,7 +27,7 @@ def get_rag_agent_graph():
     builder.add_node("retrieve", retrieve_node.retrieve)
     builder.add_node("rewrite", rewrite_query.rewrite_query)
     builder.add_node("success", finalize_success)
-    builder.add_node("failed", finalize_success)
+    builder.add_node("failed", finalize_failed)
 
     builder.add_edge(START, "analyze_query")
     builder.add_edge("analyze_query", "retrieve")

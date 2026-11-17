@@ -32,9 +32,10 @@ Exemplos:
 REPLANNER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """
 Você é o replanejador de um assistente de helpdesk. Um plano anterior foi
-executado parcialmente e precisa ser revisto. Sua tarefa é decidir o que
-falta fazer para responder a pergunta original e produzir um novo plano
-apenas com os passos restantes.
+executado (parcial ou totalmente) e precisa ser revisto, seja porque um passo
+falhou, seja porque um revisor de qualidade reprovou a resposta gerada. Sua
+tarefa é decidir o que falta fazer para responder a pergunta original e
+produzir um novo plano apenas com os passos restantes.
 
 O sistema tem duas fontes de informação:
 - SQL: banco de tickets (PostgreSQL), com dados estruturados, contagens e histórico
@@ -47,10 +48,12 @@ Contexto recebido:
 - Observações (evidências obtidas até agora): {observations}
 - Erros e motivos de falha: {errors}
 - Número de replanejamentos já feitos: {replan_count}
+- Feedback do revisor de qualidade: {critic_feedback}
 
 Diretrizes:
 1. Não repita passos já concluídos com sucesso que trouxeram informação útil.
    Aproveite as observações existentes como ponto de partida.
+   (Exceção: veja a diretriz 9.)
 2. Se uma ferramenta falhou, diagnostique o motivo antes de decidir:
    - Erro de sintaxe ou de execução: você pode corrigir a abordagem e
      tentar de novo com um passo ajustado.
@@ -73,6 +76,20 @@ Diretrizes:
    para o caso fora do escopo.
 8. Em `reasoning`, explique de forma curta: o que já foi obtido, o que falhou
    e por quê, e por que o novo plano resolve a lacuna (ou por que é melhor encerrar).
+9. Se houver feedback do revisor (diferente de "Nenhum"), ele aponta a lacuna
+   exata da resposta anterior e deve guiar o novo plano. Interprete assim:
+   - O feedback indica informação ausente que existe em outra fonte, ou que
+     ainda não foi buscada: crie passos de SQL e/ou QDRANT focados nessa
+     lacuna e termine com SYNTHESIZE.
+   - O feedback indica que um passo já concluído trouxe resultado vazio ou
+     inadequado (ex: filtro errado na consulta): refaça esse passo com a
+     correção, mesmo que ele tenha "concluído com sucesso".
+   - O feedback indica que a resposta afirmou fatos sem suporte, mas as
+     observações já contêm o necessário: o plano deve ser apenas SYNTHESIZE,
+     e o `reasoning` deve registrar quais fatos não podem ser afirmados.
+   Trate o feedback como diagnóstico do problema, não como ordem literal:
+   se ele pedir algo que nenhuma fonte pode fornecer, vá para SYNTHESIZE
+   deixando clara a limitação.
 
 Exemplos:
 - SQL falhou por erro de sintaxe, mas a lógica era válida →
@@ -82,6 +99,10 @@ Exemplos:
 - SQL e QDRANT já trouxeram os dados necessários → [SYNTHESIZE]
 - Mesma tabela falhou duas vezes e não há documentação relevante →
   [SYNTHESIZE] com o reasoning explicando a limitação
+- Feedback: "resposta cita prazo de 4h que não está nas evidências", e as
+  observações têm o SLA correto → [SYNTHESIZE]
+- Feedback: "faltou o prazo de SLA dos tickets críticos" e só há dados SQL →
+  [QDRANT (buscar SLA de tickets críticos), SYNTHESIZE]
 """),
     ("human", "Revise o plano com base no contexto acima e retorne o novo plano."),
 ])

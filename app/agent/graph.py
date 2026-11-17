@@ -1,12 +1,12 @@
 import logging
 from langgraph.graph import StateGraph, START, END
-
 from app.agent.state import AgentState
 from app.agent.planner.nodes.planner_node import planner
 from app.agent.planner.nodes.executor_node import executor
 from app.agent.prompts.synthesis_prompt import SYNTHESIS_PROMPT
 from app.agent.llm import getLLM
 from app.agent.planner.nodes.replanner_node import replanner_node
+from app.agent.critic.critic_node import critic_node
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 llm = getLLM()
 
 MAX_REPLANS = 2
+MAX_CRITIC_REPLANS = 2
 
 def route_after_planner(state: AgentState) -> str:
     plan = state["plan"]
@@ -70,6 +71,18 @@ def synthesis(state: AgentState) -> dict:
     return {"answer": res.content}
 
 
+def route_after_critic(state: AgentState):
+    passed = state.get("passed", False)
+    print("PASSOU????? ", passed)
+    critic_replan_count = state.get("critic_replan_count", 0)
+    replan_count = state.get("replan_count", 0)
+
+    if passed:
+        return "END"
+    if critic_replan_count >= MAX_CRITIC_REPLANS or replan_count >= MAX_REPLANS:
+        return "END"  
+    return "replanner"
+
 
 
 def get_planner_graph():
@@ -80,8 +93,9 @@ def get_planner_graph():
     builder.add_node("recusa", recusa)
     builder.add_node("synthesis_node", synthesis)
     builder.add_node("replanner", replanner_node)
+    builder.add_node("critic", critic_node)
     builder.add_edge(START, "planner")
-
+    
     builder.add_conditional_edges(
         "planner",
         route_after_planner,
@@ -100,8 +114,14 @@ def get_planner_graph():
         {"executor": "executor", "synthesis": "synthesis_node", "recusa": "recusa"}
     )
 
+    builder.add_conditional_edges(
+        "critic",
+        route_after_critic,
+        {"END": END, "replanner": "replanner"}
+    )
+
     builder.add_edge("recusa", END)
-    builder.add_edge("synthesis_node", END)
+    builder.add_edge("synthesis_node", "critic")
 
     return builder.compile()
 
@@ -115,9 +135,11 @@ if __name__ == "__main__":
     import traceback
     p_graph = get_planner_graph()
     print(p_graph.get_graph().draw_mermaid())
-    """try:
-        res = p_graph.invoke({"question": "Quais tickets de cobrança ainda abertos estão fora do prazo de atendimento definido na política?"})
+    try:
+        print("cheguei aqiu")
+        res = p_graph.invoke({"question": "quantos usuarios por cada categoria de plano?"})
+        print("repostas::;")
         print("\nRESPOSTA:\n", res["answer"])
     except Exception as e:
         print("\n❌ ERRO DETECTADO:")
-        traceback.print_exc()"""
+        traceback.print_exc()

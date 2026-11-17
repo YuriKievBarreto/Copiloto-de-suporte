@@ -14,3 +14,9 @@ class AgentState(TypedDict):
     errors: dict[int, str]
     failed_steps: list[int]
     answer: str
+
+    critic_evaluation: Optional[dict]
+    critic_feedback: Optional[str]
+    critic_replan_count: int
+    passed: bool
+

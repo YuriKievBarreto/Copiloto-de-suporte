@@ -6,10 +6,11 @@ from app.agent.state import AgentState
 
 def planner(state: AgentState) -> dict:
     print("🟡 [1/4] Iniciando Planner...")
-    llm = getGROQLLM()
+    llm = getLLM()
     structured = llm.with_structured_output(Plan)
     chain = PLANNER_PROMPT | structured
     plan: Plan = chain.invoke({"question": state["question"]})
+    
     return {
         "plan": plan,
         "current_step_index": 0,

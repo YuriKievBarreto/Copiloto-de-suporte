@@ -28,6 +28,7 @@ def _build_context(step: PlanStep, observations: dict) -> str:
 def _run_sql(step: PlanStep, state: AgentState) -> dict:
     context = _build_context(step, state["observations"])
     question_with_context = state["question"]
+    
     if context:
         question_with_context = f"{question_with_context}\n\n Contexto adicional: \n {context}"
 
@@ -49,6 +50,7 @@ def _run_sql(step: PlanStep, state: AgentState) -> dict:
 def _run_qdrant(step: PlanStep, state: AgentState) -> dict:
     context = _build_context(step, state["observations"])
     question_with_context = state["question"]
+    
     if context:
         question_with_context = f"{question_with_context}\n\nContexto adicional:\n{context}"
     try:

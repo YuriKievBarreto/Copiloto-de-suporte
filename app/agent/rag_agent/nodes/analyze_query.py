@@ -9,6 +9,7 @@ def analyze_query(state: RAGAgentState):
     analyzer = prompt | llm.with_structured_output(QueryAnalysis)
     
     result = analyzer.invoke({"question": state["question"]})
+    print(f"-------RESULTADO DA ANALISE DA QUERY: {result}----------")
     category = None if result.category == "nenhuma" else result.category
 
     queries_tried.append(result.search_query)

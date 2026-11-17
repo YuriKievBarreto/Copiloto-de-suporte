@@ -1,4 +1,4 @@
-from typing import TypedDict, Any
+from typing import TypedDict, Any, Optional
 from langchain_core.documents import Document
 MAX_ATTEMPTS = 3
 from enum import StrEnum
@@ -18,6 +18,9 @@ class RAGAgentState(TypedDict):
     is_relevant: bool
     attempts: int
     status: Status
+
+    
+
 
 
 

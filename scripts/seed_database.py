@@ -32,12 +32,12 @@ from sqlmodel import Session, select, func
 # Garante o diretório raiz no PYTHONPATH
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import app.models  # noqa: F401 — Registra todos os modelos no SQLAlchemy metadata
-from app.core.database.relational_database import get_engine
-from app.models.agentes import Agente, Niveis
-from app.models.clientes import Cliente, Planos
-from app.models.comentarios import Comentario
-from app.models.tickets import Categoria, Prioridade, StatusTicket, Ticket
+import app.db.models  # noqa: F401 — Registra todos os modelos no SQLAlchemy metadata
+from app.infra.database.relational_database import get_engine
+from app.db.models.agentes import Agente, Niveis
+from app.db.models.clientes import Cliente, Planos
+from app.db.models.comentarios import Comentario
+from app.db.models.tickets import Categoria, Prioridade, StatusTicket, Ticket
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)

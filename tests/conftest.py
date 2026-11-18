@@ -1,14 +1,14 @@
 import pytest
 from sqlmodel import SQLModel, Session, create_engine
-from app import models
+from app.db import models
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 from sqlmodel import SQLModel, Session, create_engine
 from sqlalchemy.pool import StaticPool
 
-from app.models.agentes import Agente, Niveis
-from app.models.clientes import Cliente, Planos
-from app.models.tickets import Ticket, Categoria, Prioridade, StatusTicket
+from app.db.models.agentes import Agente, Niveis
+from app.db.models.clientes import Cliente, Planos
+from app.db.models.tickets import Ticket, Categoria, Prioridade, StatusTicket
 
 @pytest.fixture
 def test_engine(tmp_path):

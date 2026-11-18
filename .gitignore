@@ -6,7 +6,7 @@ __pycache__/
 .eggs/
 build/
 dist/
-
+.agents/
 # --- Ambientes virtuais (uv, venv) ---
 .venv/
 venv/

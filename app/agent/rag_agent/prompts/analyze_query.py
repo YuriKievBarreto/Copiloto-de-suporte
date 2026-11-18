@@ -1,5 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate
-from app.agent.llm import getLLM
+from app.infra.llm import getLLM
 from pydantic import BaseModel
 from typing import Literal
 

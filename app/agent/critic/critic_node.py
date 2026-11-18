@@ -1,5 +1,5 @@
 from app.agent.state import AgentState
-from app.agent.llm import getLLM
+from app.infra.llm import getLLM
 from app.agent.critic.prompts import critic_prompt
 from app.agent.critic.schemas import CriticEvaluation
 
@@ -14,7 +14,7 @@ def critic_node(state: AgentState):
         "answer": state.get("answer")
     })
 
-    print("="*15, "CRITIC RESPONSE", "="*15, "\n", res, "\n" "="*30)
+    
 
     passed = res.is_grounded and res.is_complete
     feedback = None

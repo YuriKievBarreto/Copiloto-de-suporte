@@ -1,5 +1,5 @@
 from app.agent.state import AgentState
-from app.agent.llm import getLLM
+from app.infra.llm import getLLM
 from app.agent.planner.prompts import REPLANNER_PROMPT
 from app.agent.planner.schemas import Plan
 
@@ -17,7 +17,8 @@ def replanner_node(state: AgentState)-> dict:
     triggered_by_critic = bool(critic_feedback)
 
     origem = "critic" if triggered_by_critic else "falha de execução"
-    print(f"🔄 [Replanner] Replanejando (tentativa {replan_count + 1})...")
+    print(f"🔄 [Replanner] Replanejando (tentativa {replan_count + 1}, origem: {origem})...")
+
     llm = getLLM()
     structured = llm.with_structured_output(Plan)
     chain = REPLANNER_PROMPT | structured
@@ -33,7 +34,7 @@ def replanner_node(state: AgentState)-> dict:
 
     })
 
-    print("="*15, "REPLANNER", "="*15, "\n", new_plan, "\n", "="*30)
+    
 
     return {
             "plan": new_plan,

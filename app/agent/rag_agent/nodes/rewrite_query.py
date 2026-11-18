@@ -1,6 +1,6 @@
 from app.agent.rag_agent.state import RAGAgentState
 from app.agent.rag_agent.prompts.rewrite_prompt import rewrite_prompt
-from app.agent.llm import getLLM
+from app.infra.llm import getLLM
 from pydantic import BaseModel, BeforeValidator
 from typing import Literal, Annotated
 llm = getLLM()
@@ -41,7 +41,7 @@ def rewrite_query(state: RAGAgentState):
 
     })
 
-    print(f"-------RESULTADO DA REESCRITA DA QUERY: {result}----------")
+   
 
     new_query, new_category = result.search_query, result.category
     if new_query.strip().lower() in {q.strip().lower() for q in tried} and new_category == state.get("category"):

@@ -1,7 +1,7 @@
 from app.agent.rag_agent.state import RAGAgentState
 from pydantic import BaseModel
 from app.agent.rag_agent.prompts.grade import grade_prompt
-from app.agent.llm import getLLM
+from app.infra.llm import getLLM
 
 llm = getLLM()
 

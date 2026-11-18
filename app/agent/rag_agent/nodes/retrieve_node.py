@@ -1,6 +1,6 @@
 from langchain_core.documents import Document
 from qdrant_client import models
-from app.core.database.vector_database import get_vector_store
+from app.infra.database.vector_database import get_vector_store
 from app.agent.rag_agent.state import RAGAgentState
 
 vector_store = get_vector_store()

@@ -1,5 +1,5 @@
 from langchain_core.tools import tool
-from app.core.database.vector_database import get_vector_store
+from app.infra.database.vector_database import get_vector_store
 from langchain_core.documents import Document
 from langchain_core.tools import tool
 

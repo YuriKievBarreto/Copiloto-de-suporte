@@ -1,4 +1,4 @@
-from app.agent.llm import getLLM, getGROQLLM
+from app.infra.llm import getLLM
 from app.agent.planner.schemas import Plan
 from app.agent.planner.prompts import PLANNER_PROMPT
 from app.agent.state import AgentState

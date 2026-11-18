@@ -1,6 +1,6 @@
 from app.agent.sql_agent.state import SQLAgentState, MAX_ATTEMPTS
 from sqlalchemy import inspect
-from app.core.database.relational_database import get_agent_engine
+from app.infra.database.relational_database import get_agent_engine
 from sqlalchemy import text
 from sqlmodel import Session
 from typing import Any

@@ -1,7 +1,7 @@
 from sqlmodel import create_engine, Session, SQLModel
 from app.core.config import get_settings
 from functools import lru_cache
-from app import models
+from app.db import models
 
 @lru_cache
 def get_engine():

@@ -1,8 +1,6 @@
 from app.services.interfaces.chat_service_interface import IChatService
 from app.schemas.chat_schemas import ChatResponse, ChatRequest
 from langgraph.graph.state import CompiledStateGraph
-from fastapi import Depends
-from app.agent.workflow.graph import get_planner_graph
 
 
 class ChatService(IChatService):
@@ -10,8 +8,5 @@ class ChatService(IChatService):
         self.agent = agent
 
     async def chat(self, data: ChatRequest) -> ChatResponse:
-        res =  await self.agent.ainvoke({"question": data.input})
+        res = await self.agent.ainvoke({"question": data.input})
         return ChatResponse(answer=res["answer"])
-        
-            
-    

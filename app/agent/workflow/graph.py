@@ -78,15 +78,4 @@ def get_planner_graph():
 
 
 
-if __name__ == "__main__":
-    import traceback
-    p_graph = get_planner_graph()
-    print(p_graph.get_graph().draw_mermaid())
-    try:
-        print("cheguei aqiu")
-        res = p_graph.invoke({"question": "quantos usuarios por cada categoria de plano?"})
-        print("repostas::;")
-        print("\nRESPOSTA:\n", res["answer"])
-    except Exception as e:
-        print("\n❌ ERRO DETECTADO:")
-        traceback.print_exc()
+

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Copiloto de Suporte - Chat & Workflow Tracker</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Coluna da Esquerda: Chat Principal -->
+    <main class="chat-section">
+      <header class="chat-header">
+        <div class="header-info">
+          <h2>💬 Copiloto de Suporte</h2>
+          <span class="status-indicator online">Conectado ao Backend</span>
+        </div>
+        <button id="clear-chat-btn" class="secondary-btn" title="Limpar conversa">Limpar Chat</button>
+      </header>
+
+      <div id="messages-container" class="messages-container">
+        <div class="message assistant welcome">
+          <div class="bubble">
+            <p>Olá! Sou seu copiloto de suporte inteligente. Como posso ajudar você hoje?</p>
+            <span class="hint">Experimente perguntar sobre tickets abertos, clientes ou dúvidas de suporte.</span>
+          </div>
+        </div>
+      </div>
+
+      <form id="chat-form" class="chat-form">
+        <textarea
+          id="message-input"
+          placeholder="Digite sua dúvida ou instrução..."
+          rows="1"
+          required
+        ></textarea>
+        <button type="submit" id="send-btn" class="send-btn">
+          <span>Enviar</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </form>
+    </main>
+
+    <!-- Coluna da Direita: Workflow Incremental em Tempo Real -->
+    <aside class="workflow-section">
+      <header class="workflow-header">
+        <div class="workflow-header-title">
+          <h3>⚡ Progresso do Workflow</h3>
+          <span id="workflow-badge" class="badge idle">Aguardando</span>
+        </div>
+        <button id="clear-workflow-btn" class="secondary-btn" title="Limpar logs">Limpar</button>
+      </header>
+
+      <div class="workflow-scroll-area">
+        <div id="workflow-feed" class="workflow-feed">
+          <div class="empty-state">
+            <p>Nenhum workflow em execução no momento.</p>
+            <span>Envie uma mensagem no chat para ver o progresso incremental das etapas da IA em tempo real.</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

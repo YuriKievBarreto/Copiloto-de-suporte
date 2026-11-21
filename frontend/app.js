@@ -66,7 +66,7 @@ function formatTime(ts) {
 }
 
 /** Adiciona SEMPRE um novo item ao final da timeline (nunca atualiza um existente). */
-function addWorkflowItem({ kind, icon, title, desc, detail, ts }) {
+function addWorkflowItem({ kind, icon, title, desc, detail }) {
   if (feedEl.querySelector('.empty-state')) feedEl.innerHTML = '';
 
   const item = el('div', `wf-item ${kind}`);
@@ -75,7 +75,6 @@ function addWorkflowItem({ kind, icon, title, desc, detail, ts }) {
   const content = el('div', 'wf-content');
   const header = el('div', 'wf-item-header');
   header.appendChild(el('span', 'wf-item-title', title));
-  header.appendChild(el('span', 'wf-item-time', formatTime(ts)));
   content.appendChild(header);
 
   if (desc) content.appendChild(el('div', 'wf-item-desc', desc));
@@ -84,6 +83,98 @@ function addWorkflowItem({ kind, icon, title, desc, detail, ts }) {
   item.appendChild(content);
   feedEl.appendChild(item);
   scrollToBottom(feedEl.parentElement);
+}
+
+// ---------- grupos recolhíveis (passos do executor e seus sub-eventos) ----------
+
+let currentGroup = null;
+
+const GROUP_STATUS = {
+  running: { icon: '⏳', label: 'executando' },
+  completed: { icon: '✔', label: 'concluído' },
+  failed: { icon: '⚠', label: 'falhou' },
+};
+
+function setGroupStatus(group, status) {
+  group.status = status;
+  group.root.classList.remove('running', 'completed', 'failed');
+  group.root.classList.add(status);
+  group.iconEl.textContent = GROUP_STATUS[status].icon;
+  group.statusEl.textContent = GROUP_STATUS[status].label;
+}
+
+/** Abre um grupo recolhido por padrão; sub-eventos entram em `group.body`. */
+function openGroup({ title, kind }) {
+  if (feedEl.querySelector('.empty-state')) feedEl.innerHTML = '';
+
+  const root = el('div', `wf-item wf-group ${kind}`);
+  const iconEl = el('div', 'wf-icon-col', '⏳');
+  root.appendChild(iconEl);
+
+  const content = el('div', 'wf-content');
+
+  const header = el('button', 'wf-group-header');
+  header.type = 'button';
+  header.setAttribute('aria-expanded', 'false');
+
+  const chevron = el('span', 'wf-chevron', '▸');
+  const titleEl = el('span', 'wf-item-title', title);
+  const statusEl = el('span', 'wf-group-status', 'executando');
+  const countEl = el('span', 'wf-group-count', '0 atualizações');
+
+  const top = el('div', 'wf-group-top');
+  [chevron, titleEl, statusEl, countEl].forEach((n) => top.appendChild(n));
+  header.appendChild(top);
+
+  const lastEl = el('div', 'wf-group-last', 'Iniciando…');
+  header.appendChild(lastEl);
+
+  const body = el('div', 'wf-group-body');
+  body.hidden = true; // recolhido sempre
+
+  // O estado aberto/fechado só muda por ação do usuário, nunca por novos eventos
+  header.addEventListener('click', () => {
+    const expand = body.hidden;
+    body.hidden = !expand;
+    header.setAttribute('aria-expanded', String(expand));
+    chevron.textContent = expand ? '▾' : '▸';
+  });
+
+  content.appendChild(header);
+  content.appendChild(body);
+  root.appendChild(content);
+  feedEl.appendChild(root);
+  scrollToBottom(feedEl.parentElement);
+
+  const group = { root, iconEl, statusEl, countEl, lastEl, body, count: 0, failed: false, status: 'running' };
+  setGroupStatus(group, 'running');
+  return group;
+}
+
+function addGroupEvent(group, { icon, title, desc, detail, failed }) {
+  const row = el('div', `wf-sub${failed ? ' failed' : ''}`);
+  row.appendChild(el('span', 'wf-sub-icon', icon));
+
+  const text = el('div', 'wf-sub-text');
+  const head = el('div', 'wf-item-header');
+  head.appendChild(el('span', 'wf-sub-title', title));
+  text.appendChild(head);
+  if (desc) text.appendChild(el('div', 'wf-item-desc', desc));
+  if (detail) text.appendChild(el('div', 'wf-item-detail', detail));
+  row.appendChild(text);
+
+  group.body.appendChild(row);
+  group.count += 1;
+  group.countEl.textContent = `${group.count} atualizaç${group.count === 1 ? 'ão' : 'ões'}`;
+  group.lastEl.textContent = desc ? `${title} — ${desc}` : title;
+  if (!group.body.hidden) scrollToBottom(feedEl.parentElement);
+}
+
+function closeGroup(failed = false) {
+  if (!currentGroup) return;
+  const hasFailed = failed || currentGroup.failed;
+  setGroupStatus(currentGroup, hasFailed ? 'failed' : 'completed');
+  currentGroup = null;
 }
 
 // ---------- tradução de eventos SSE em itens da timeline ----------
@@ -138,12 +229,22 @@ function handleWorkflowEvent(name, d) {
       break;
 
     case 'node_start': {
-      const extra = d.step_id ? ` — passo ${d.step_id} (${d.action})` : '';
-      addWorkflowItem({ kind: NODE_KIND[d.node] || 'executor', icon: '⏳', title: d.label + extra, ts });
+      if (d.node === 'executor') {
+        closeGroup(); // segurança: nunca deixa um grupo anterior aberto
+        const agente = d.action === 'SQL' ? 'Agente SQL' : 'Agente RAG';
+        const titulo = d.step_id ? `Passo ${d.step_id} · ${agente}` : d.label;
+        currentGroup = openGroup({ title: titulo, kind: 'executor', ts });
+        break;
+      }
+      addWorkflowItem({ kind: NODE_KIND[d.node] || 'executor', icon: '⏳', title: d.label, ts });
       break;
     }
 
     case 'node_end': {
+      if (d.node === 'executor' && currentGroup) {
+        closeGroup();
+        break;
+      }
       let desc = '';
       let detail = '';
       const s = d.summary || {};
@@ -158,24 +259,47 @@ function handleWorkflowEvent(name, d) {
     }
 
     case 'node_error':
+      if (d.node === 'executor' && currentGroup) {
+        addGroupEvent(currentGroup, { icon: '✖', title: 'Erro na execução do passo', desc: d.message, ts, failed: true });
+        closeGroup(true);
+        break;
+      }
       addWorkflowItem({ kind: 'failed', icon: '✖', title: `Erro em ${d.node}`, desc: d.message, ts });
       break;
 
     case 'step_progress': {
       const { title, desc } = describeProgress(d);
+      if (currentGroup) {
+        addGroupEvent(currentGroup, {
+          icon: d.action === 'SQL' ? '🗄' : '📚',
+          title: title.replace(/^Passo \d+ · /, ''),
+          desc,
+          ts,
+          failed: d.stage === 'execute_sql' && d.ok === false,
+        });
+        break;
+      }
       addWorkflowItem({ kind: 'executor', icon: d.action === 'SQL' ? '🗄' : '📚', title, desc, ts });
       break;
     }
 
-    case 'step_failed':
+    case 'step_failed': {
+      const detail = `causa: ${ERROR_KIND_LABEL[d.error_kind] || d.error_kind}`;
+      if (currentGroup) {
+        // o passo só é marcado como falho aqui (após esgotar as tentativas), não em cada retry
+        currentGroup.failed = true;
+        addGroupEvent(currentGroup, { icon: '⚠', title: 'Passo falhou', desc: d.message, detail, ts, failed: true });
+        break;
+      }
       addWorkflowItem({
         kind: 'failed', icon: '⚠',
         title: `Passo ${d.step_id} falhou (${d.action})`,
         desc: d.message,
-        detail: `causa: ${ERROR_KIND_LABEL[d.error_kind] || d.error_kind}`,
+        detail,
         ts,
       });
       break;
+    }
 
     case 'replan':
       addWorkflowItem({
@@ -208,12 +332,14 @@ function handleWorkflowEvent(name, d) {
       break;
 
     case 'error':
+      closeGroup(true);
       setBadge('failed', 'Erro');
       addWorkflowItem({ kind: 'failed', icon: '✖', title: 'Erro no processamento', desc: d.message, ts });
       addMessage('assistant', `⚠️ ${d.message}`);
       break;
 
     case 'done':
+      closeGroup();
       if (badgeEl.classList.contains('running')) setBadge('completed', 'Concluído');
       break;
   }
@@ -277,6 +403,7 @@ async function sendMessage() {
 
   addMessage('user', text);
   feedEl.innerHTML = '';
+  currentGroup = null;
   setBadge('running', 'Em execução');
 
   try {
@@ -315,5 +442,6 @@ document.getElementById('clear-chat-btn').addEventListener('click', () => {
 
 document.getElementById('clear-workflow-btn').addEventListener('click', () => {
   feedEl.innerHTML = EMPTY_HTML;
+  currentGroup = null;
   setBadge('idle', 'Aguardando');
 });

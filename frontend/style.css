@@ -33,7 +33,7 @@ body {
 
 .app-container {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 420px;
+  grid-template-columns: minmax(0, 1fr) 520px;
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   width: 100vw;
@@ -433,3 +433,112 @@ body {
   text-align: left;
 }
 .bubble.markdown th { background-color: var(--bg-main); font-weight: 600; }
+
+/* --- GRUPOS RECOLHÍVEIS (passos do executor) --- */
+.wf-group-header {
+  width: 100%;
+  display: block;
+  text-align: left;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.wf-group-header:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.wf-group-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wf-group-top .wf-item-title { flex: 1; }
+
+.wf-chevron {
+  width: 1rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.wf-group-status {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: #334155;
+  color: var(--text-secondary);
+}
+
+.wf-group.running .wf-group-status { background: #1e3a8a; color: #60a5fa; animation: pulse 1.5s infinite; }
+.wf-group.completed .wf-group-status { background: #064e3b; color: #34d399; }
+.wf-group.failed .wf-group-status { background: #881337; color: #f43f5e; }
+.wf-group.failed .wf-icon-col { border-color: var(--accent-rose); color: var(--accent-rose); }
+.wf-group.completed .wf-icon-col { border-color: var(--accent-emerald); color: var(--accent-emerald); }
+
+.wf-group-count {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.wf-group-last {
+  margin-top: 0.35rem;
+  padding-left: 1.5rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wf-group-body {
+  margin-top: 0.6rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.wf-group-body[hidden] { display: none; }
+
+.wf-sub {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  animation: slideIn 0.2s ease-out;
+}
+
+.wf-sub-icon { font-size: 0.85rem; line-height: 1.4; }
+.wf-sub-text { flex: 1; min-width: 0; }
+.wf-sub-title { font-size: 0.8rem; font-weight: 500; color: var(--text-primary); }
+.wf-sub.failed .wf-sub-title { color: var(--accent-rose); }
+
+/* --- CORREÇÃO: impede que grupos/itens estourem a largura do painel --- */
+.workflow-scroll-area { overflow-x: hidden; }
+.workflow-feed { min-width: 0; }
+.wf-item { min-width: 0; }
+.wf-content { min-width: 0; overflow: hidden; }
+.wf-group-header { min-width: 0; max-width: 100%; overflow: hidden; }
+.wf-group-top { min-width: 0; }
+.wf-group-top .wf-item-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.3;
+}
+.wf-chevron, .wf-group-status, .wf-group-count, .wf-group-top .wf-item-time { flex-shrink: 0; }
+.wf-group-last { max-width: 100%; box-sizing: border-box; }
+.wf-group-body { min-width: 0; }
+.wf-sub { min-width: 0; }
+.wf-sub-icon { flex-shrink: 0; }
+.wf-item-desc, .wf-item-title, .wf-sub-title { overflow-wrap: anywhere; }
+.wf-item-detail { white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden; }

@@ -1,4 +1,5 @@
 from app.agent.state import AgentState
+from app.agent.events import emit, classify_error, redact_sql
 from app.infra.llm import getLLM
 from app.agent.planner.prompts import REPLANNER_PROMPT
 from app.agent.planner.schemas import Plan
@@ -18,6 +19,13 @@ def replanner_node(state: AgentState)-> dict:
 
     origem = "critic" if triggered_by_critic else "falha de execução"
     print(f"🔄 [Replanner] Replanejando (tentativa {replan_count + 1}, origem: {origem})...")
+
+    if triggered_by_critic:
+        reason = redact_sql(critic_feedback)
+    else:
+        kinds = sorted({classify_error(e) for e in errors.values()})
+        reason = "Falha na execução dos passos: " + (", ".join(kinds) or "unknown")
+    emit("replan", attempt=replan_count + 1, origin="critic" if triggered_by_critic else "execution", reason=reason)
 
     llm = getLLM()
     structured = llm.with_structured_output(Plan)

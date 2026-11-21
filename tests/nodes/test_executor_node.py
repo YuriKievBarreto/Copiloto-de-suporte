@@ -39,13 +39,27 @@ def test_build_context_concatena_multiplas_dependencias():
     assert "passo 2" in resultado
 
 
+def _sql_stream(error=None, result=None):
+    return [
+        {"generate_sql": {"sql": "SELECT 1", "attempts": 0}},
+        {"execute_sql": {"result": result, "error": error, "attempts": 1}},
+    ]
+
+
+def _rag_stream(status, documents):
+    return [
+        {"analyze_query": {"search_query": "q"}},
+        {"retrieve": {"documents": documents}},
+        {"grade": {"is_relevant": status == RagStatus.SUCCESS}},
+        {"success" if status == RagStatus.SUCCESS else "failed": {"status": status}},
+    ]
+
+
 # ── executor com step SQL ────────────────────────────────────────────────────
 
 @patch("app.agent.planner.nodes.executor_node.sql_graph")
 def test_executor_registra_step_em_completed_quando_sql_sucesso(mock_sql_graph):
-    mock_sql_graph.invoke.return_value = {
-        "result": [{"id": 1}], "error": None, "sql": "SELECT 1"
-    }
+    mock_sql_graph.stream.return_value = _sql_stream(result=[{"id": 1}])
     plan = make_plan([make_step(1, StepAction.SQL)])
     state = base_state(plan=plan, current_step_index=0)
     result = executor(state)
@@ -55,9 +69,7 @@ def test_executor_registra_step_em_completed_quando_sql_sucesso(mock_sql_graph):
 
 @patch("app.agent.planner.nodes.executor_node.sql_graph")
 def test_executor_registra_step_em_failed_quando_sql_falha(mock_sql_graph):
-    mock_sql_graph.invoke.return_value = {
-        "result": None, "error": "timeout na conexão", "sql": None
-    }
+    mock_sql_graph.stream.return_value = _sql_stream(error="timeout na conexão")
     plan = make_plan([make_step(1, StepAction.SQL)])
     state = base_state(plan=plan, current_step_index=0)
     result = executor(state)
@@ -67,9 +79,7 @@ def test_executor_registra_step_em_failed_quando_sql_falha(mock_sql_graph):
 
 @patch("app.agent.planner.nodes.executor_node.sql_graph")
 def test_executor_incrementa_indice_do_passo(mock_sql_graph):
-    mock_sql_graph.invoke.return_value = {
-        "result": [{"id": 1}], "error": None, "sql": "SELECT 1"
-    }
+    mock_sql_graph.stream.return_value = _sql_stream(result=[{"id": 1}])
     plan = make_plan([make_step(1, StepAction.SQL)])
     state = base_state(plan=plan, current_step_index=0)
     result = executor(state)
@@ -78,9 +88,7 @@ def test_executor_incrementa_indice_do_passo(mock_sql_graph):
 
 @patch("app.agent.planner.nodes.executor_node.sql_graph")
 def test_executor_armazena_sql_evidence(mock_sql_graph):
-    mock_sql_graph.invoke.return_value = {
-        "result": [{"total": 42}], "error": None, "sql": "SELECT COUNT(*) FROM tickets"
-    }
+    mock_sql_graph.stream.return_value = _sql_stream(result=[{"total": 42}])
     plan = make_plan([make_step(1, StepAction.SQL)])
     state = base_state(plan=plan, current_step_index=0)
     result = executor(state)
@@ -92,24 +100,21 @@ def test_executor_armazena_sql_evidence(mock_sql_graph):
 
 @patch("app.agent.planner.nodes.executor_node.rag_graph")
 def test_executor_armazena_rag_evidence_quando_sucesso(mock_rag_graph):
-    mock_rag_graph.invoke.return_value = {
-        "status": RagStatus.SUCCESS,
-        "documents": [{"content": "Manual de SSO"}],
-    }
+    docs = [{"content": "Manual de SSO"}]
+    stream = _rag_stream(RagStatus.SUCCESS, docs)
+    mock_rag_graph.stream.return_value = stream
     plan = make_plan([make_step(1, StepAction.QDRANT)])
     state = base_state(plan=plan, current_step_index=0)
     result = executor(state)
     assert result["rag_evidence"] is not None
     assert result["rag_evidence"]["status"] == "success"
+    assert result["rag_evidence"]["documents"] == docs
     assert 1 in result["completed_steps"]
 
 
 @patch("app.agent.planner.nodes.executor_node.rag_graph")
 def test_executor_registra_rag_como_failed_quando_status_errado(mock_rag_graph):
-    mock_rag_graph.invoke.return_value = {
-        "status": RagStatus.FAILED,
-        "documents": [],
-    }
+    mock_rag_graph.stream.return_value = _rag_stream(RagStatus.FAILED, [])
     plan = make_plan([make_step(1, StepAction.QDRANT)])
     state = base_state(plan=plan, current_step_index=0)
     result = executor(state)
@@ -123,3 +128,37 @@ def test_executor_retorna_dict_vazio_se_indice_fora_dos_steps():
     state = base_state(plan=plan, current_step_index=5)
     result = executor(state)
     assert result == {}
+
+
+# ── eventos de stream emitidos pelo executor ────────────────────────────────
+
+@patch("app.agent.planner.nodes.executor_node.emit")
+@patch("app.agent.planner.nodes.executor_node.sql_graph")
+def test_executor_emite_progresso_sql_sem_expor_sql(mock_sql_graph, mock_emit):
+    mock_sql_graph.stream.return_value = _sql_stream(result=[{"id": 1}])
+    plan = make_plan([make_step(1, StepAction.SQL)])
+    executor(base_state(plan=plan, current_step_index=0))
+    stages = [c.kwargs["stage"] for c in mock_emit.call_args_list]
+    assert stages == ["generate_sql", "execute_sql"]
+    assert "SELECT" not in str(mock_emit.call_args_list).upper()
+
+
+@patch("app.agent.planner.nodes.executor_node.emit")
+@patch("app.agent.planner.nodes.executor_node.sql_graph")
+def test_executor_emite_step_failed_quando_sql_falha(mock_sql_graph, mock_emit):
+    mock_sql_graph.stream.return_value = _sql_stream(error="timeout na conexão")
+    plan = make_plan([make_step(1, StepAction.SQL)])
+    executor(base_state(plan=plan, current_step_index=0))
+    falhas = [c for c in mock_emit.call_args_list if c.args[0] == "step_failed"]
+    assert len(falhas) == 1
+    assert falhas[0].kwargs["error_kind"] == "timeout"
+
+
+@patch("app.agent.planner.nodes.executor_node.emit")
+@patch("app.agent.planner.nodes.executor_node.rag_graph")
+def test_executor_emite_progresso_rag(mock_rag_graph, mock_emit):
+    mock_rag_graph.stream.return_value = _rag_stream(RagStatus.FAILED, [])
+    plan = make_plan([make_step(1, StepAction.QDRANT)])
+    executor(base_state(plan=plan, current_step_index=0))
+    stages = [c.kwargs["stage"] for c in mock_emit.call_args_list if c.args[0] == "step_progress"]
+    assert stages == ["analyze_query", "retrieve", "grade"]

@@ -23,10 +23,33 @@ function scrollToBottom(container) {
   container.scrollTop = container.scrollHeight;
 }
 
+function renderMarkdown(text) {
+  // Fallback para texto puro se as libs não carregarem (ex.: sem internet)
+  if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') return null;
+  return DOMPurify.sanitize(marked.parse(text, { breaks: true, gfm: true }));
+}
+
+if (typeof DOMPurify !== 'undefined') {
+  // Links gerados pelo LLM abrem em nova aba, sem acesso à janela original
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A') {
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+}
+
 function addMessage(role, text) {
   const wrapper = el('div', `message ${role}`);
   const bubble = el('div', 'bubble');
-  bubble.textContent = text;
+  // Só o assistente é renderizado como Markdown; texto do usuário nunca vira HTML
+  const html = role === 'assistant' ? renderMarkdown(text) : null;
+  if (html !== null) {
+    bubble.classList.add('markdown');
+    bubble.innerHTML = html;
+  } else {
+    bubble.textContent = text;
+  }
   wrapper.appendChild(bubble);
   messagesEl.appendChild(wrapper);
   scrollToBottom(messagesEl);

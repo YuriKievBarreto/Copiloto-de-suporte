@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.enviroment.strip().lower() in ("prod", "production")
 
-    @property'
+    @property
     def effective_qdrant_url(self) -> str:
         if self.is_production and self.cluster_endpoint:
             return self.cluster_endpoint

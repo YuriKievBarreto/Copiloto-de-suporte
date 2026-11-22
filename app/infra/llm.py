@@ -1,12 +1,11 @@
 from langchain_aws import ChatBedrockConverse
 from langchain_core.language_models import BaseChatModel
-from langchain_groq import ChatGroq
 import os
 from functools import cache
+from botocore.config import Config
 from dotenv import load_dotenv
 load_dotenv()
-from botocore.config import Config
-from langchain_ollama import ChatOllama
+
 
 bedrock_config = Config(
         retries={

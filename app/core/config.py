@@ -10,7 +10,7 @@ RAIZ = Path(__file__).resolve().parents[2]
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=RAIZ / ".env.production",
+        env_file=RAIZ / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )

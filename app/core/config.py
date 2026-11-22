@@ -10,7 +10,7 @@ RAIZ = Path(__file__).resolve().parents[2]
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=RAIZ / ".env",
+        env_file=RAIZ / ".env.production",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -52,14 +52,26 @@ class Settings(BaseSettings):
     )
     qdrant_collection: str = "manuais"
 
-    hf_token: SecretStr
-    embedding_model: str = "BAAI/bge-m3"
+    aws_region: str = Field(
+        default="us-east-1",
+        validation_alias=AliasChoices("aws_region", "AWS_REGION", "AWS_DEFAULT_REGION"),
+    )
+    aws_access_key_id: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("aws_access_key_id", "AWS_ACCESS_KEY_ID"),
+    )
+    aws_secret_access_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("aws_secret_access_key", "AWS_SECRET_ACCESS_KEY"),
+    )
+    embedding_model: str = "amazon.titan-embed-text-v2:0"
+    hf_token: SecretStr | None = None
 
     @property
     def is_production(self) -> bool:
         return self.enviroment.strip().lower() in ("prod", "production")
 
-    @property
+    @property'
     def effective_qdrant_url(self) -> str:
         if self.is_production and self.cluster_endpoint:
             return self.cluster_endpoint

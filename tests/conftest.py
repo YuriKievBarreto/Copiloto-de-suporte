@@ -13,10 +13,11 @@ from unittest.mock import MagicMock, patch
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 os.environ["LANGSMITH_TRACING"] = "false"
 
-# ── 1. Bloqueia HuggingFaceEmbeddings ────────────────────────────────────────
+# ── 1. Bloqueia Embeddings / langchain_aws BedrockEmbeddings ────────────────
 _mock_embeddings = MagicMock()
 _mock_hf = MagicMock()
 _mock_hf.HuggingFaceEmbeddings = MagicMock(return_value=_mock_embeddings)
+_mock_hf.HuggingFaceEndpointEmbeddings = MagicMock(return_value=_mock_embeddings)
 sys.modules.setdefault("langchain_huggingface", _mock_hf)
 
 # ── 2. Bloqueia botocore / boto3 / langchain_aws ─────────────────────────────
@@ -25,6 +26,7 @@ sys.modules.setdefault("botocore.config", MagicMock())
 sys.modules.setdefault("boto3", MagicMock())
 _mock_aws = MagicMock()
 _mock_aws.ChatBedrockConverse = MagicMock(return_value=MagicMock())
+_mock_aws.BedrockEmbeddings = MagicMock(return_value=_mock_embeddings)
 sys.modules.setdefault("langchain_aws", _mock_aws)
 
 # ── 3. Bloqueia getLLM globalmente ──────────────────────────────────────────

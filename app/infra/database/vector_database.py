@@ -1,15 +1,18 @@
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import VectorParams, Distance
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_aws import BedrockEmbeddings
 from app.core.config import get_settings
 
 settings = get_settings()
 
-embeddings = HuggingFaceEmbeddings(
-    model_name=settings.embedding_model,
-    model_kwargs={"device": "cpu"},
-    encode_kwargs={"normalize_embeddings": True, "batch_size": 8},
+embeddings = BedrockEmbeddings(
+    model_id=settings.embedding_model,
+    region_name=settings.aws_region,
+    aws_access_key_id=settings.aws_access_key_id.get_secret_value() if settings.aws_access_key_id else None,
+    aws_secret_access_key=settings.aws_secret_access_key.get_secret_value() if settings.aws_secret_access_key else None,
+    dimensions=1024,
+    normalize=True,
 )
 
 collection_name = settings.qdrant_collection

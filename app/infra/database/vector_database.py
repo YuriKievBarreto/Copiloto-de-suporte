@@ -2,23 +2,25 @@ from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import VectorParams, Distance
 from langchain_huggingface import HuggingFaceEmbeddings
-from dotenv import load_dotenv
-import os
-load_dotenv()
+from app.core.config import get_settings
+
+settings = get_settings()
 
 embeddings = HuggingFaceEmbeddings(
-    model_name="BAAI/bge-m3",
+    model_name=settings.embedding_model,
     model_kwargs={"device": "cpu"},
     encode_kwargs={"normalize_embeddings": True, "batch_size": 8},
-    
 )
 
-collection_name = "manuais"
-
+collection_name = settings.qdrant_collection
 
 
 def get_vector_store():
-    client = QdrantClient(url="http://localhost:6333")
+    api_key = settings.qdrant_api_key.get_secret_value() if settings.qdrant_api_key else None
+    client = QdrantClient(
+        url=settings.effective_qdrant_url,
+        api_key=api_key,
+    )
 
     if not client.collection_exists(collection_name):
         client.create_collection(
@@ -36,5 +38,3 @@ def get_vector_store():
     )
 
     return vector_store
-
-

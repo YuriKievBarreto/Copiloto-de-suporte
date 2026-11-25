@@ -26,20 +26,17 @@ echo "==> [2/6] Preparando diretorio do projeto em ${REPO_DIR}..."
 sudo mkdir -p "${REPO_DIR}"
 sudo chown -R "${USER}:${USER}" "${REPO_DIR}"
 
-if [ -f "${HOME}/copiloto.env" ]; then
-  echo "==> Movendo ~/copiloto.env para ${REPO_DIR}/.env..."
-  mv "${HOME}/copiloto.env" "${REPO_DIR}/.env"
-fi
-
 cd "${REPO_DIR}"
 
 if [ ! -d ".git" ]; then
-  echo "==> Clonando repositorio ${GITHUB_REPOSITORY}..."
+  echo "==> Inicializando e clonando repositorio ${GITHUB_REPOSITORY}..."
+  git init
+  git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git" || git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
   if [ -n "${GH_TOKEN:-}" ]; then
     AUTH_HEADER="AUTHORIZATION: basic $(printf "x-access-token:%s" "$GH_TOKEN" | base64 | tr -d '\n')"
-    git -c "http.extraHeader=${AUTH_HEADER}" clone --no-checkout "https://github.com/${GITHUB_REPOSITORY}.git" .
+    git -c "http.extraHeader=${AUTH_HEADER}" fetch --all --tags --prune
   else
-    git clone --no-checkout "https://github.com/${GITHUB_REPOSITORY}.git" .
+    git fetch --all --tags --prune
   fi
 else
   echo "==> Atualizando repositorio existente..."
@@ -53,6 +50,11 @@ fi
 
 echo "==> Fazendo checkout do commit ${COMMIT_SHA}..."
 git checkout --force "${COMMIT_SHA}"
+
+if [ -f "${HOME}/copiloto.env" ]; then
+  echo "==> Posicionando ${REPO_DIR}/.env..."
+  mv -f "${HOME}/copiloto.env" "${REPO_DIR}/.env"
+fi
 
 echo "==> [3/6] Validando arquivo .env..."
 if [ ! -f "${REPO_DIR}/.env" ]; then

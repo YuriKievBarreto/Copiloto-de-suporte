@@ -17,4 +17,6 @@ tests/
 .vscode/
 .idea/
 
+infra/
+
 *.log

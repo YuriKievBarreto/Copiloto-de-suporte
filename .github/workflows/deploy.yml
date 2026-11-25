@@ -1,0 +1,216 @@
+name: Deploy EC2 Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - '.gitignore'
+  workflow_dispatch:
+
+concurrency:
+  group: production-infra-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run Pytest
+        run: uv run pytest -q
+
+  deploy:
+    name: Provision & Deploy
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: infra/terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+
+      - name: Terraform Validate
+        working-directory: infra/terraform
+        run: terraform validate
+
+      - name: Terraform Apply
+        id: tf_apply
+        working-directory: infra/terraform
+        env:
+          TF_VAR_existing_key_name: ${{ secrets.TF_VAR_EXISTING_KEY_NAME }}
+          TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
+          TF_VAR_ssh_allowed_cidr: ${{ secrets.TF_VAR_SSH_ALLOWED_CIDR }}
+        run: |
+          terraform apply -auto-approve -input=false
+
+      - name: Extract Terraform Outputs
+        id: tf_outputs
+        working-directory: infra/terraform
+        run: |
+          PUBLIC_IP=$(terraform output -raw public_ip)
+          SG_ID=$(terraform output -raw security_group_id)
+          INSTANCE_ID=$(terraform output -raw instance_id)
+          echo "public_ip=${PUBLIC_IP}" >> "$GITHUB_OUTPUT"
+          echo "security_group_id=${SG_ID}" >> "$GITHUB_OUTPUT"
+          echo "instance_id=${INSTANCE_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Get GitHub Runner Public IP
+        id: runner_ip
+        run: |
+          RUNNER_IP=$(curl -s https://checkip.amazonaws.com | tr -d '[:space:]')
+          echo "ip=${RUNNER_IP}" >> "$GITHUB_OUTPUT"
+
+      - name: Authorize Temporary SSH Ingress
+        id: auth_ssh
+        run: |
+          SG_ID="${{ steps.tf_outputs.outputs.security_group_id }}"
+          RUNNER_IP="${{ steps.runner_ip.outputs.ip }}"
+          echo "Liberando porta 22 para ${RUNNER_IP}/32 no SG ${SG_ID}..."
+          aws ec2 authorize-security-group-ingress \
+            --group-id "${SG_ID}" \
+            --protocol tcp \
+            --port 22 \
+            --cidr "${RUNNER_IP}/32"
+          echo "authorized=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH Key & Wait for SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          PUBLIC_IP: ${{ steps.tf_outputs.outputs.public_ip }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${SSH_PRIVATE_KEY}" > ~/.ssh/ec2_id_rsa
+          chmod 600 ~/.ssh/ec2_id_rsa
+          cat << 'EOF' > ~/.ssh/config
+          Host ec2-target
+            HostName ${{ steps.tf_outputs.outputs.public_ip }}
+            User ec2-user
+            IdentityFile ~/.ssh/ec2_id_rsa
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ServerAliveInterval 10
+            ServerAliveCountMax 3
+          EOF
+          chmod 600 ~/.ssh/config
+
+          echo "Aguardando instancia aceitar conexoes SSH (ate 180s)..."
+          for i in $(seq 1 36); do
+            if ssh -q ec2-target exit; then
+              echo "Conexao SSH estabelecida com sucesso!"
+              break
+            fi
+            echo "Aguardando SSH... (${i}/36)"
+            sleep 5
+          done
+
+      - name: Prepare and Transfer Environment File
+        env:
+          POSTGRES_CONN_STRING: ${{ secrets.POSTGRES_CONN_STRING }}
+          CLUSTER_ENDPOINT: ${{ secrets.CLUSTER_ENDPOINT }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          LANGCHAIN_TRACING_V2: ${{ secrets.LANGCHAIN_TRACING_V2 }}
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_PROJECT: ${{ secrets.LANGCHAIN_PROJECT }}
+        run: |
+          ENV_FILE=$(mktemp)
+          cat << EOF > "${ENV_FILE}"
+          POSTGRES_CONN_STRING=${POSTGRES_CONN_STRING}
+          CLUSTER_ENDPOINT=${CLUSTER_ENDPOINT}
+          QDRANT_API_KEY=${QDRANT_API_KEY}
+          LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
+          LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
+          LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-copiloto-suport}
+          EOF
+          chmod 600 "${ENV_FILE}"
+          scp "${ENV_FILE}" ec2-target:~/copiloto.env
+          shred -u "${ENV_FILE}"
+
+      - name: Transfer & Execute Remote Deploy Script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          scp infra/scripts/remote_deploy.sh ec2-target:~/remote_deploy.sh
+          ssh ec2-target "chmod +x ~/remote_deploy.sh && GH_TOKEN='${GH_TOKEN}' GITHUB_REPOSITORY='${GITHUB_REPOSITORY}' COMMIT_SHA='${COMMIT_SHA}' ~/remote_deploy.sh"
+
+      - name: External Smoke Test
+        env:
+          PUBLIC_IP: ${{ steps.tf_outputs.outputs.public_ip }}
+        run: |
+          echo "Testando endpoint publico: http://${PUBLIC_IP}:8000/health"
+          for i in $(seq 1 12); do
+            if curl -fsS "http://${PUBLIC_IP}:8000/health"; then
+              echo ""
+              echo "Healthcheck externo bem-sucedido!"
+              exit 0
+            fi
+            echo "Aguardando resposta da API... (${i}/12)"
+            sleep 5
+          done
+          echo "Falha ao consultar healthcheck externo."
+          exit 1
+
+      - name: Cleanup & Revoke SSH Ingress
+        if: always()
+        run: |
+          if [ -f ~/.ssh/ec2_id_rsa ]; then
+            shred -u ~/.ssh/ec2_id_rsa || rm -f ~/.ssh/ec2_id_rsa
+          fi
+          if [ "${{ steps.auth_ssh.outputs.authorized }}" = "true" ]; then
+            SG_ID="${{ steps.tf_outputs.outputs.security_group_id }}"
+            RUNNER_IP="${{ steps.runner_ip.outputs.ip }}"
+            echo "Revogando acesso SSH temporario para ${RUNNER_IP}/32 no SG ${SG_ID}..."
+            aws ec2 revoke-security-group-ingress \
+              --group-id "${SG_ID}" \
+              --protocol tcp \
+              --port 22 \
+              --cidr "${RUNNER_IP}/32" || true
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### 🚀 Status do Deploy" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status do Job:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **IP Publico da EC2:** \`${{ steps.tf_outputs.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Instancia ID:** \`${{ steps.tf_outputs.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Endpoint da API:** [http://${{ steps.tf_outputs.outputs.public_ip }}:8000](http://${{ steps.tf_outputs.outputs.public_ip }}:8000)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Healthcheck:** [http://${{ steps.tf_outputs.outputs.public_ip }}:8000/health](http://${{ steps.tf_outputs.outputs.public_ip }}:8000/health)" >> $GITHUB_STEP_SUMMARY

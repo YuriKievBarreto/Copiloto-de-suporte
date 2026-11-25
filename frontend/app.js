@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:8000/chat/stream';
+const API_URL = 'https://04lio9vmy6.execute-api.us-east-1.amazonaws.com/chat/stream';
 
 const form = document.getElementById('chat-form');
 const input = document.getElementById('message-input');

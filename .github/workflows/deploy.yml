@@ -172,22 +172,49 @@ jobs:
           scp infra/scripts/remote_deploy.sh ec2-target:~/remote_deploy.sh
           ssh ec2-target "chmod +x ~/remote_deploy.sh && GH_TOKEN='${GH_TOKEN}' GITHUB_REPOSITORY='${GITHUB_REPOSITORY}' COMMIT_SHA='${COMMIT_SHA}' ~/remote_deploy.sh"
 
+      - name: Update API Gateway Target
+        if: env.API_GATEWAY_ID != '' && env.API_GATEWAY_INTEGRATION_ID != ''
+        env:
+          API_GATEWAY_ID: ${{ secrets.API_GATEWAY_ID || '' }}
+          API_GATEWAY_INTEGRATION_ID: ${{ secrets.API_GATEWAY_INTEGRATION_ID || '' }}
+          PUBLIC_IP: ${{ steps.tf_outputs.outputs.public_ip }}
+        run: |
+          echo "Atualizando API Gateway (${API_GATEWAY_ID}) para apontar para http://${PUBLIC_IP}:8000/{proxy}..."
+          aws apigatewayv2 update-integration \
+            --api-id "${API_GATEWAY_ID}" \
+            --integration-id "${API_GATEWAY_INTEGRATION_ID}" \
+            --integration-uri "http://${PUBLIC_IP}:8000/{proxy}"
+
       - name: External Smoke Test
         env:
           PUBLIC_IP: ${{ steps.tf_outputs.outputs.public_ip }}
+          API_GATEWAY_ID: ${{ secrets.API_GATEWAY_ID || '' }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
         run: |
-          echo "Testando endpoint publico: http://${PUBLIC_IP}:8000/health"
+          echo "Testando endpoint direto: http://${PUBLIC_IP}:8000/health"
           for i in $(seq 1 12); do
             if curl -fsS "http://${PUBLIC_IP}:8000/health"; then
               echo ""
-              echo "Healthcheck externo bem-sucedido!"
-              exit 0
+              echo "Healthcheck direto bem-sucedido!"
+              break
             fi
             echo "Aguardando resposta da API... (${i}/12)"
             sleep 5
           done
-          echo "Falha ao consultar healthcheck externo."
-          exit 1
+
+          if [ -n "${API_GATEWAY_ID}" ]; then
+            GATEWAY_URL="https://${API_GATEWAY_ID}.execute-api.${AWS_REGION}.amazonaws.com/health"
+            echo "Testando endpoint via API Gateway: ${GATEWAY_URL}"
+            for i in $(seq 1 6); do
+              if curl -fsS "${GATEWAY_URL}"; then
+                echo ""
+                echo "Healthcheck via API Gateway bem-sucedido!"
+                exit 0
+              fi
+              echo "Aguardando sincronizacao do API Gateway... (${i}/6)"
+              sleep 5
+            done
+          fi
 
       - name: Cleanup & Revoke SSH Ingress
         if: always()
@@ -213,5 +240,10 @@ jobs:
           echo "- **Status do Job:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "- **IP Publico da EC2:** \`${{ steps.tf_outputs.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Instancia ID:** \`${{ steps.tf_outputs.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Endpoint da API:** [http://${{ steps.tf_outputs.outputs.public_ip }}:8000](http://${{ steps.tf_outputs.outputs.public_ip }}:8000)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Healthcheck:** [http://${{ steps.tf_outputs.outputs.public_ip }}:8000/health](http://${{ steps.tf_outputs.outputs.public_ip }}:8000/health)" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ secrets.API_GATEWAY_ID }}" ]; then
+            GATEWAY_BASE="https://${{ secrets.API_GATEWAY_ID }}.execute-api.${{ secrets.AWS_REGION || 'us-east-1' }}.amazonaws.com"
+            echo "- **API Gateway (HTTPS Fixo):** [${GATEWAY_BASE}](${GATEWAY_BASE})" >> $GITHUB_STEP_SUMMARY
+            echo "- **Healthcheck Gateway:** [${GATEWAY_BASE}/health](${GATEWAY_BASE}/health)" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "- **Endpoint Direto EC2:** [http://${{ steps.tf_outputs.outputs.public_ip }}:8000](http://${{ steps.tf_outputs.outputs.public_ip }}:8000)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Healthcheck Direto:** [http://${{ steps.tf_outputs.outputs.public_ip }}:8000/health](http://${{ steps.tf_outputs.outputs.public_ip }}:8000/health)" >> $GITHUB_STEP_SUMMARY

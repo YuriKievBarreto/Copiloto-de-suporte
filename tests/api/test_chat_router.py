@@ -24,3 +24,10 @@ def test_chat_service_foi_chamado_com_request_correto(client, mock_chat_service)
     client.post("/chat/", json={"input": "Qual o status do ticket 42?"})
     assert mock_chat_service.call_count == 1
     assert mock_chat_service.last_data.input == "Qual o status do ticket 42?"
+
+
+def test_get_health_retorna_200(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+

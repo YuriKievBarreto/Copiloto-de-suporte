@@ -41,12 +41,12 @@ variable "spot_max_price" {
 
 variable "ssh_allowed_cidr" {
   type        = string
-  description = "Bloco CIDR IPv4 com permissão permanente de acesso SSH na porta 22 (opcional, ex.: 'SEU_IP/32'). Se nulo, o acesso SSH fica fechado por padrão e aberto apenas temporariamente via CI/CD."
+  description = "Bloco CIDR IPv4 com permissão permanente de acesso SSH na porta 22 (opcional, ex.: 'SEU_IP/32'). Se nulo ou vazio, o acesso SSH fica fechado por padrão e aberto apenas temporariamente via CI/CD."
   default     = null
 
   validation {
-    condition     = var.ssh_allowed_cidr == null || can(cidrhost(var.ssh_allowed_cidr, 0))
-    error_message = "O valor informado em ssh_allowed_cidr deve ser nulo ou um CIDR IPv4 válido (ex.: 203.0.113.10/32)."
+    condition     = var.ssh_allowed_cidr == null || trimspace(var.ssh_allowed_cidr) == "" || can(cidrhost(var.ssh_allowed_cidr, 0))
+    error_message = "O valor informado em ssh_allowed_cidr deve ser nulo, vazio ou um CIDR IPv4 válido (ex.: 203.0.113.10/32)."
   }
 }
 

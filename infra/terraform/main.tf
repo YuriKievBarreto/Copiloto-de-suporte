@@ -29,7 +29,7 @@ resource "aws_instance" "api" {
   subnet_id                   = var.subnet_id
   vpc_security_group_ids      = [aws_security_group.api.id]
   associate_public_ip_address = true
-  key_name                    = coalesce(var.existing_key_name, try(aws_key_pair.this[0].key_name, null))
+  key_name                    = coalesce(local.effective_existing_key_name, try(aws_key_pair.this[0].key_name, null))
   iam_instance_profile        = aws_iam_instance_profile.ec2.name
 
   user_data                   = file("${path.module}/user_data.sh")
@@ -65,7 +65,7 @@ resource "aws_instance" "api" {
   lifecycle {
     ignore_changes = [ami]
     precondition {
-      condition     = var.existing_key_name != null || local.resolved_ssh_public_key != null
+      condition     = local.effective_existing_key_name != null || local.resolved_ssh_public_key != null
       error_message = "Defina ao menos uma das opções de chave SSH: 'existing_key_name', 'ssh_public_key' ou 'ssh_public_key_path'."
     }
   }

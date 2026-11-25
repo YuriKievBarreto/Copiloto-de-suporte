@@ -52,9 +52,9 @@ jobs:
       - name: Terraform Destroy
         working-directory: infra/terraform
         env:
-          TF_VAR_existing_key_name: ${{ secrets.TF_VAR_EXISTING_KEY_NAME }}
+          TF_VAR_existing_key_name: ${{ secrets.TF_VAR_EXISTING_KEY_NAME || '' }}
           TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
-          TF_VAR_ssh_allowed_cidr: ${{ secrets.TF_VAR_SSH_ALLOWED_CIDR }}
+          TF_VAR_ssh_allowed_cidr: ${{ secrets.TF_VAR_SSH_ALLOWED_CIDR || '' }}
         run: |
           terraform destroy -auto-approve -input=false
 

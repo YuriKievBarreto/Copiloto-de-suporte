@@ -151,6 +151,7 @@ jobs:
         run: |
           ENV_FILE=$(mktemp)
           cat << EOF > "${ENV_FILE}"
+          ENVIROMENT=production
           POSTGRES_CONN_STRING=${POSTGRES_CONN_STRING}
           CLUSTER_ENDPOINT=${CLUSTER_ENDPOINT}
           QDRANT_API_KEY=${QDRANT_API_KEY}

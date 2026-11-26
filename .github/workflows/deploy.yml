@@ -1,4 +1,4 @@
-name: Deploy EC2 Pipeline
+name: Deploy ECS Fargate Pipeline
 
 on:
   push:
@@ -9,6 +9,12 @@ on:
       - 'README.md'
       - '.gitignore'
   workflow_dispatch:
+    inputs:
+      rebuild_image:
+        description: 'Fazer build e push de nova imagem no ECR antes de subir (desmarcado = start rapido com :latest)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: production-infra-deploy
@@ -17,13 +23,16 @@ concurrency:
 permissions:
   contents: read
 
-# NOTA DE CONTRATO: Os nomes dos jobs e steps abaixo (ex: "Run Unit Tests",
-# "Terraform Plan & Apply", "Setup remote environment & deploy", "Smoke Test Healthcheck")
-# são mapeados e exibidos em tempo real na landing page de espera (frontend/deploy-status.js).
-# Caso renomeie steps ou jobs, atualize o dicionário STEP_TO_PHASE em frontend/deploy-status.js.
+# NOTA DE CONTRATO: Os nomes dos jobs ("Run Unit Tests", "Deploy ECS Fargate") e dos steps abaixo
+# ("Configure AWS credentials", "Validate ECS configuration", "Login to Amazon ECR",
+# "Build & Push Image to ECR", "Stop Previous ECS Tasks", "Start ECS Fargate Task",
+# "Wait for Task & Extract Public IP", "Update API Gateway Target", "External Smoke Test")
+# sao mapeados e exibidos em tempo real na landing page de espera (frontend/deploy-status.js).
+# Caso renomeie steps ou jobs, atualize o dicionario STEP_TO_PHASE em frontend/deploy-status.js.
 jobs:
   test:
     name: Run Unit Tests
+    if: ${{ github.event_name == 'push' || inputs.rebuild_image }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -44,11 +53,23 @@ jobs:
         run: uv run pytest -q
 
   deploy:
-    name: Provision & Deploy
+    name: Deploy ECS Fargate
     needs: test
+    if: ${{ always() && !cancelled() && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || secrets.ECR_REPOSITORY || '' }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER || secrets.ECS_CLUSTER || '' }}
+      ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION || secrets.ECS_TASK_DEFINITION || '' }}
+      ECS_SUBNETS: ${{ vars.ECS_SUBNETS || secrets.ECS_SUBNETS || '' }}
+      ECS_SECURITY_GROUP: ${{ vars.ECS_SECURITY_GROUP || secrets.ECS_SECURITY_GROUP || '' }}
+      API_GATEWAY_ID: ${{ vars.API_GATEWAY_ID || secrets.API_GATEWAY_ID || '' }}
+      API_GATEWAY_RESOURCE_ID: ${{ vars.API_GATEWAY_RESOURCE_ID || secrets.API_GATEWAY_RESOURCE_ID || '' }}
+      SHOULD_BUILD: ${{ github.event_name == 'push' || inputs.rebuild_image }}
     steps:
       - name: Checkout repository
+        if: ${{ github.event_name == 'push' || inputs.rebuild_image }}
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -56,132 +77,136 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.10.5
-          terraform_wrapper: false
-
-      - name: Terraform Init
-        working-directory: infra/terraform
+      - name: Validate ECS configuration
         run: |
-          terraform init \
-            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+          MISSING=()
+          [ -z "${ECS_CLUSTER}" ] && MISSING+=("ECS_CLUSTER")
+          [ -z "${ECS_TASK_DEFINITION}" ] && MISSING+=("ECS_TASK_DEFINITION")
+          [ -z "${ECS_SUBNETS}" ] && MISSING+=("ECS_SUBNETS")
+          [ -z "${ECS_SECURITY_GROUP}" ] && MISSING+=("ECS_SECURITY_GROUP")
+          if [ "${SHOULD_BUILD}" = "true" ] && [ -z "${ECR_REPOSITORY}" ]; then
+            MISSING+=("ECR_REPOSITORY")
+          fi
+          if [ "${#MISSING[@]}" -gt 0 ]; then
+            echo "ERRO: Configure as seguintes GitHub Variables (ou Secrets): ${MISSING[*]}"
+            exit 1
+          fi
+          echo "Configuracao validada. Cluster=${ECS_CLUSTER}, TaskDef=${ECS_TASK_DEFINITION}, Build=${SHOULD_BUILD}"
 
-      - name: Terraform Validate
-        working-directory: infra/terraform
-        run: terraform validate
+      - name: Login to Amazon ECR
+        id: login-ecr
+        if: ${{ github.event_name == 'push' || inputs.rebuild_image }}
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Terraform Apply
-        id: tf_apply
-        working-directory: infra/terraform
+      - name: Build & Push Image to ECR
+        if: ${{ github.event_name == 'push' || inputs.rebuild_image }}
         env:
-          TF_VAR_existing_key_name: ${{ secrets.TF_VAR_EXISTING_KEY_NAME || '' }}
-          TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
-          TF_VAR_ssh_allowed_cidr: ${{ secrets.TF_VAR_SSH_ALLOWED_CIDR || '' }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          terraform apply -auto-approve -input=false
+          SHORT_SHA="${IMAGE_TAG:0:7}"
+          IMAGE_LATEST="${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+          IMAGE_SHA="${ECR_REGISTRY}/${ECR_REPOSITORY}:${SHORT_SHA}"
+          echo "Compilando imagem a partir de dockerfile..."
+          docker build -f dockerfile -t "${IMAGE_LATEST}" -t "${IMAGE_SHA}" .
+          echo "Publicando tags no ECR (${IMAGE_LATEST} e ${IMAGE_SHA})..."
+          docker push "${IMAGE_LATEST}"
+          docker push "${IMAGE_SHA}"
 
-      - name: Extract Terraform Outputs
-        id: tf_outputs
-        working-directory: infra/terraform
+      - name: Stop Previous ECS Tasks
         run: |
-          PUBLIC_IP=$(terraform output -raw public_ip)
-          SG_ID=$(terraform output -raw security_group_id)
-          INSTANCE_ID=$(terraform output -raw instance_id)
+          TASK_FAMILY="${ECS_TASK_DEFINITION##*/}"
+          TASK_FAMILY="${TASK_FAMILY%%:*}"
+          RUNNING_TASKS=$(aws ecs list-tasks \
+            --cluster "${ECS_CLUSTER}" \
+            --family "${TASK_FAMILY}" \
+            --desired-status RUNNING \
+            --query 'taskArns[]' \
+            --output text)
+
+          if [ -n "${RUNNING_TASKS}" ] && [ "${RUNNING_TASKS}" != "None" ]; then
+            echo "Parando tasks anteriores da familia ${TASK_FAMILY}..."
+            for TASK_ARN in ${RUNNING_TASKS}; do
+              echo "Parando task ${TASK_ARN}..."
+              aws ecs stop-task \
+                --cluster "${ECS_CLUSTER}" \
+                --task "${TASK_ARN}" \
+                --reason "Replaced by new GitHub Actions deploy" >/dev/null
+            done
+          else
+            echo "Nenhuma task anterior em execucao."
+          fi
+
+      - name: Start ECS Fargate Task
+        id: start_task
+        run: |
+          SUBNETS_CLEAN=$(printf '%s' "${ECS_SUBNETS}" | tr -d '[:space:]')
+          SG_CLEAN=$(printf '%s' "${ECS_SECURITY_GROUP}" | tr -d '[:space:]')
+          echo "Subindo task Fargate no cluster ${ECS_CLUSTER} usando ${ECS_TASK_DEFINITION}..."
+          RUN_JSON=$(aws ecs run-task \
+            --cluster "${ECS_CLUSTER}" \
+            --task-definition "${ECS_TASK_DEFINITION}" \
+            --launch-type FARGATE \
+            --count 1 \
+            --network-configuration "awsvpcConfiguration={subnets=[${SUBNETS_CLEAN}],securityGroups=[${SG_CLEAN}],assignPublicIp=ENABLED}" \
+            --output json)
+
+          TASK_ARN=$(echo "${RUN_JSON}" | jq -r '.tasks[0].taskArn // empty')
+          if [ -z "${TASK_ARN}" ]; then
+            echo "ERRO: Falha ao iniciar task no ECS Fargate:"
+            echo "${RUN_JSON}" | jq '.failures'
+            exit 1
+          fi
+          echo "Task iniciada: ${TASK_ARN}"
+          echo "task_arn=${TASK_ARN}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Task & Extract Public IP
+        id: task_ip
+        env:
+          TASK_ARN: ${{ steps.start_task.outputs.task_arn }}
+        run: |
+          echo "Aguardando task ${TASK_ARN} entrar em estado RUNNING..."
+          if ! aws ecs wait tasks-running --cluster "${ECS_CLUSTER}" --tasks "${TASK_ARN}"; then
+            echo "ERRO: Task nao atingiu estado RUNNING. Detalhes:"
+            aws ecs describe-tasks \
+              --cluster "${ECS_CLUSTER}" \
+              --tasks "${TASK_ARN}" \
+              --query 'tasks[0].{lastStatus:lastStatus,stoppedReason:stoppedReason,containers:containers[].{name:name,lastStatus:lastStatus,exitCode:exitCode,reason:reason}}' \
+              --output json
+            exit 1
+          fi
+
+          ENI_ID=$(aws ecs describe-tasks \
+            --cluster "${ECS_CLUSTER}" \
+            --tasks "${TASK_ARN}" \
+            --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value | [0]' \
+            --output text)
+
+          if [ -z "${ENI_ID}" ] || [ "${ENI_ID}" = "None" ]; then
+            echo "ERRO: Nao foi possivel obter a ENI da task ${TASK_ARN}."
+            exit 1
+          fi
+
+          PUBLIC_IP=$(aws ec2 describe-network-interfaces \
+            --network-interface-ids "${ENI_ID}" \
+            --query 'NetworkInterfaces[0].Association.PublicIp' \
+            --output text)
+
+          if [ -z "${PUBLIC_IP}" ] || [ "${PUBLIC_IP}" = "None" ]; then
+            echo "ERRO: Task sem IP publico associado na ENI ${ENI_ID}. Verifique se assignPublicIp=ENABLED e subnet publica estao configurados."
+            exit 1
+          fi
+
+          echo "ENI: ${ENI_ID} | IP Publico: ${PUBLIC_IP}"
+          echo "eni_id=${ENI_ID}" >> "$GITHUB_OUTPUT"
           echo "public_ip=${PUBLIC_IP}" >> "$GITHUB_OUTPUT"
-          echo "security_group_id=${SG_ID}" >> "$GITHUB_OUTPUT"
-          echo "instance_id=${INSTANCE_ID}" >> "$GITHUB_OUTPUT"
-
-      - name: Get GitHub Runner Public IP
-        id: runner_ip
-        run: |
-          RUNNER_IP=$(curl -s https://checkip.amazonaws.com | tr -d '[:space:]')
-          echo "ip=${RUNNER_IP}" >> "$GITHUB_OUTPUT"
-
-      - name: Authorize Temporary SSH Ingress
-        id: auth_ssh
-        run: |
-          SG_ID="${{ steps.tf_outputs.outputs.security_group_id }}"
-          RUNNER_IP="${{ steps.runner_ip.outputs.ip }}"
-          echo "Liberando porta 22 para ${RUNNER_IP}/32 no SG ${SG_ID}..."
-          aws ec2 authorize-security-group-ingress \
-            --group-id "${SG_ID}" \
-            --protocol tcp \
-            --port 22 \
-            --cidr "${RUNNER_IP}/32"
-          echo "authorized=true" >> "$GITHUB_OUTPUT"
-
-      - name: Setup SSH Key & Wait for SSH
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          PUBLIC_IP: ${{ steps.tf_outputs.outputs.public_ip }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "${SSH_PRIVATE_KEY}" > ~/.ssh/ec2_id_rsa
-          chmod 600 ~/.ssh/ec2_id_rsa
-          cat << 'EOF' > ~/.ssh/config
-          Host ec2-target
-            HostName ${{ steps.tf_outputs.outputs.public_ip }}
-            User ec2-user
-            IdentityFile ~/.ssh/ec2_id_rsa
-            StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
-            ServerAliveInterval 10
-            ServerAliveCountMax 3
-          EOF
-          chmod 600 ~/.ssh/config
-
-          echo "Aguardando instancia aceitar conexoes SSH (ate 180s)..."
-          for i in $(seq 1 36); do
-            if ssh -q ec2-target exit; then
-              echo "Conexao SSH estabelecida com sucesso!"
-              break
-            fi
-            echo "Aguardando SSH... (${i}/36)"
-            sleep 5
-          done
-
-      - name: Prepare and Transfer Environment File
-        env:
-          POSTGRES_CONN_STRING: ${{ secrets.POSTGRES_CONN_STRING }}
-          CLUSTER_ENDPOINT: ${{ secrets.CLUSTER_ENDPOINT }}
-          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
-          LANGCHAIN_TRACING_V2: ${{ secrets.LANGCHAIN_TRACING_V2 }}
-          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
-          LANGCHAIN_PROJECT: ${{ secrets.LANGCHAIN_PROJECT }}
-        run: |
-          ENV_FILE=$(mktemp)
-          cat << EOF > "${ENV_FILE}"
-          ENVIROMENT=production
-          POSTGRES_CONN_STRING=${POSTGRES_CONN_STRING}
-          CLUSTER_ENDPOINT=${CLUSTER_ENDPOINT}
-          QDRANT_API_KEY=${QDRANT_API_KEY}
-          LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
-          LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
-          LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-copiloto-suport}
-          EOF
-          chmod 600 "${ENV_FILE}"
-          scp "${ENV_FILE}" ec2-target:~/copiloto.env
-          shred -u "${ENV_FILE}"
-
-      - name: Transfer & Execute Remote Deploy Script
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          COMMIT_SHA: ${{ github.sha }}
-        run: |
-          scp infra/scripts/remote_deploy.sh ec2-target:~/remote_deploy.sh
-          ssh ec2-target "chmod +x ~/remote_deploy.sh && GH_TOKEN='${GH_TOKEN}' GITHUB_REPOSITORY='${GITHUB_REPOSITORY}' COMMIT_SHA='${COMMIT_SHA}' ~/remote_deploy.sh"
 
       - name: Update API Gateway Target
         if: env.API_GATEWAY_ID != '' && env.API_GATEWAY_RESOURCE_ID != ''
         env:
-          API_GATEWAY_ID: ${{ secrets.API_GATEWAY_ID || '' }}
-          API_GATEWAY_RESOURCE_ID: ${{ secrets.API_GATEWAY_RESOURCE_ID || '' }}
-          PUBLIC_IP: ${{ steps.tf_outputs.outputs.public_ip }}
+          PUBLIC_IP: ${{ steps.task_ip.outputs.public_ip }}
         run: |
           echo "Atualizando REST API Gateway (${API_GATEWAY_ID}) com STREAM para http://${PUBLIC_IP}:8000/{proxy}..."
           aws apigateway put-integration \
@@ -202,63 +227,62 @@ jobs:
 
       - name: External Smoke Test
         env:
-          PUBLIC_IP: ${{ steps.tf_outputs.outputs.public_ip }}
-          API_GATEWAY_ID: ${{ secrets.API_GATEWAY_ID || '' }}
-          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          PUBLIC_IP: ${{ steps.task_ip.outputs.public_ip }}
         run: |
           echo "Testando endpoint direto: http://${PUBLIC_IP}:8000/health"
-          for i in $(seq 1 12); do
+          DIRECT_OK=0
+          for i in $(seq 1 24); do
             if curl -fsS "http://${PUBLIC_IP}:8000/health"; then
               echo ""
               echo "Healthcheck direto bem-sucedido!"
+              DIRECT_OK=1
               break
             fi
-            echo "Aguardando resposta da API... (${i}/12)"
+            echo "Aguardando resposta da API... (${i}/24)"
             sleep 5
           done
+
+          if [ "${DIRECT_OK}" -ne 1 ]; then
+            echo "ERRO: Endpoint direto http://${PUBLIC_IP}:8000/health nao respondeu em 120s."
+            exit 1
+          fi
 
           if [ -n "${API_GATEWAY_ID}" ]; then
             GATEWAY_URL="https://${API_GATEWAY_ID}.execute-api.${AWS_REGION}.amazonaws.com/prod/health"
             echo "Testando endpoint via API Gateway: ${GATEWAY_URL}"
-            for i in $(seq 1 6); do
+            GW_OK=0
+            for i in $(seq 1 12); do
               if curl -fsS "${GATEWAY_URL}"; then
                 echo ""
                 echo "Healthcheck via API Gateway bem-sucedido!"
-                exit 0
+                GW_OK=1
+                break
               fi
-              echo "Aguardando sincronizacao do API Gateway... (${i}/6)"
+              echo "Aguardando sincronizacao do API Gateway... (${i}/12)"
               sleep 5
             done
-          fi
 
-      - name: Cleanup & Revoke SSH Ingress
-        if: always()
-        run: |
-          if [ -f ~/.ssh/ec2_id_rsa ]; then
-            shred -u ~/.ssh/ec2_id_rsa || rm -f ~/.ssh/ec2_id_rsa
-          fi
-          if [ "${{ steps.auth_ssh.outputs.authorized }}" = "true" ]; then
-            SG_ID="${{ steps.tf_outputs.outputs.security_group_id }}"
-            RUNNER_IP="${{ steps.runner_ip.outputs.ip }}"
-            echo "Revogando acesso SSH temporario para ${RUNNER_IP}/32 no SG ${SG_ID}..."
-            aws ec2 revoke-security-group-ingress \
-              --group-id "${SG_ID}" \
-              --protocol tcp \
-              --port 22 \
-              --cidr "${RUNNER_IP}/32" || true
+            if [ "${GW_OK}" -ne 1 ]; then
+              echo "ERRO: Healthcheck via API Gateway (${GATEWAY_URL}) nao respondeu em 60s."
+              exit 1
+            fi
           fi
 
       - name: Summary
         if: always()
         run: |
-          echo "### 🚀 Status do Deploy" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Status do Deploy (ECS Fargate)" >> $GITHUB_STEP_SUMMARY
           echo "- **Status do Job:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **IP Publico da EC2:** \`${{ steps.tf_outputs.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Instancia ID:** \`${{ steps.tf_outputs.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${{ secrets.API_GATEWAY_ID }}" ]; then
-            GATEWAY_BASE="https://${{ secrets.API_GATEWAY_ID }}.execute-api.${{ secrets.AWS_REGION || 'us-east-1' }}.amazonaws.com/prod"
+          echo "- **Modo:** ${{ env.SHOULD_BUILD == 'true' && 'Build + Push ECR + Run Task' || 'Start rapido (imagem :latest)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster ECS:** \`${{ env.ECS_CLUSTER }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Task ARN:** \`${{ steps.start_task.outputs.task_arn }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **IP Publico da Task:** \`${{ steps.task_ip.outputs.public_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ env.API_GATEWAY_ID }}" ]; then
+            GATEWAY_BASE="https://${{ env.API_GATEWAY_ID }}.execute-api.${{ env.AWS_REGION }}.amazonaws.com/prod"
             echo "- **API Gateway (HTTPS com Streaming):** [${GATEWAY_BASE}](${GATEWAY_BASE})" >> $GITHUB_STEP_SUMMARY
             echo "- **Healthcheck Gateway:** [${GATEWAY_BASE}/health](${GATEWAY_BASE}/health)" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "- **Endpoint Direto EC2:** [http://${{ steps.tf_outputs.outputs.public_ip }}:8000](http://${{ steps.tf_outputs.outputs.public_ip }}:8000)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Healthcheck Direto:** [http://${{ steps.tf_outputs.outputs.public_ip }}:8000/health](http://${{ steps.tf_outputs.outputs.public_ip }}:8000/health)" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.task_ip.outputs.public_ip }}" ]; then
+            echo "- **Endpoint Direto Fargate:** [http://${{ steps.task_ip.outputs.public_ip }}:8000](http://${{ steps.task_ip.outputs.public_ip }}:8000)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Healthcheck Direto:** [http://${{ steps.task_ip.outputs.public_ip }}:8000/health](http://${{ steps.task_ip.outputs.public_ip }}:8000/health)" >> $GITHUB_STEP_SUMMARY
+          fi

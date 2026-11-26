@@ -1,10 +1,10 @@
-name: Destroy EC2 Infrastructure
+name: Stop ECS Fargate Environment
 
 on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Digite "DESTROY" para confirmar a destruicao da infraestrutura EC2:'
+        description: 'Digite "STOP" (ou "DESTROY") para confirmar a parada das tasks no ECS:'
         required: true
         default: ''
 
@@ -17,48 +17,78 @@ permissions:
 
 jobs:
   destroy:
-    name: Destroy Infrastructure
+    name: Stop ECS Tasks
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER || secrets.ECS_CLUSTER || '' }}
+      ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION || secrets.ECS_TASK_DEFINITION || '' }}
     steps:
       - name: Verify confirmation input
         run: |
-          if [ "${{ github.event.inputs.confirm }}" != "DESTROY" ]; then
-            echo "ERRO: Confirmacao invalida. Digite exatamente 'DESTROY' para executar o destroy."
+          CONFIRM_UPPER=$(printf '%s' "${{ github.event.inputs.confirm }}" | tr '[:lower:]' '[:upper:]')
+          if [ "${CONFIRM_UPPER}" != "STOP" ] && [ "${CONFIRM_UPPER}" != "DESTROY" ]; then
+            echo "ERRO: Confirmacao invalida. Digite 'STOP' ou 'DESTROY' para parar as tasks do ECS."
             exit 1
           fi
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.10.5
-          terraform_wrapper: false
-
-      - name: Terraform Init
-        working-directory: infra/terraform
+      - name: Stop Running ECS Tasks
+        id: stop_tasks
         run: |
-          terraform init \
-            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+          if [ -z "${ECS_CLUSTER}" ]; then
+            echo "ERRO: Configure a GitHub Variable (ou Secret) ECS_CLUSTER."
+            exit 1
+          fi
 
-      - name: Terraform Destroy
-        working-directory: infra/terraform
-        env:
-          TF_VAR_existing_key_name: ${{ secrets.TF_VAR_EXISTING_KEY_NAME || '' }}
-          TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
-          TF_VAR_ssh_allowed_cidr: ${{ secrets.TF_VAR_SSH_ALLOWED_CIDR || '' }}
-        run: |
-          terraform destroy -auto-approve -input=false
+          if [ -n "${ECS_TASK_DEFINITION}" ]; then
+            TASK_FAMILY="${ECS_TASK_DEFINITION##*/}"
+            TASK_FAMILY="${TASK_FAMILY%%:*}"
+            TASK_ARNS=$(aws ecs list-tasks \
+              --cluster "${ECS_CLUSTER}" \
+              --family "${TASK_FAMILY}" \
+              --desired-status RUNNING \
+              --query 'taskArns[]' \
+              --output text)
+          else
+            TASK_ARNS=$(aws ecs list-tasks \
+              --cluster "${ECS_CLUSTER}" \
+              --desired-status RUNNING \
+              --query 'taskArns[]' \
+              --output text)
+          fi
+
+          if [ -z "${TASK_ARNS}" ] || [ "${TASK_ARNS}" = "None" ]; then
+            echo "Nenhuma task em execucao no cluster ${ECS_CLUSTER}."
+            echo "stopped_count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          COUNT=0
+          for TASK_ARN in ${TASK_ARNS}; do
+            echo "Parando task ${TASK_ARN}..."
+            aws ecs stop-task \
+              --cluster "${ECS_CLUSTER}" \
+              --task "${TASK_ARN}" \
+              --reason "Stopped via GitHub Actions destroy workflow" >/dev/null
+            COUNT=$((COUNT + 1))
+          done
+
+          echo "Aguardando ${COUNT} task(s) finalizar(em)..."
+          aws ecs wait tasks-stopped --cluster "${ECS_CLUSTER}" --tasks ${TASK_ARNS}
+          echo "Todas as tasks foram paradas."
+          echo "stopped_count=${COUNT}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
+        if: always()
         run: |
-          echo "### 💥 Infraestrutura Destruida" >> $GITHUB_STEP_SUMMARY
-          echo "Todos os recursos gerenciados pelo Terraform foram destruidos com sucesso." >> $GITHUB_STEP_SUMMARY
+          echo "### 🛑 Ambiente ECS Fargate Parado" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** \`${{ env.ECS_CLUSTER }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tasks paradas:** ${{ steps.stop_tasks.outputs.stopped_count || '0' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Recursos preservados (custo $0 ocioso):** Cluster ECS, Repositorio ECR e Task Definition." >> $GITHUB_STEP_SUMMARY

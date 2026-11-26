@@ -139,8 +139,8 @@
                     <a id="run-link" href="#" target="_blank" rel="noopener noreferrer" class="hidden px-6 py-3 sm:py-2 border border-slate-600 rounded-full hover:bg-slate-800 transition text-center">
                         Ver execução no GitHub
                     </a>
-                    <a id="contact-link" href="index.html#contact" class="px-6 py-3 sm:py-2 border border-slate-600 rounded-full hover:bg-slate-800 transition text-center">
-                        Avisar que o ambiente não subiu
+                    <a id="contact-link" href="https://www.linkedin.com/in/yurikiev/" target="_blank" rel="noopener noreferrer" class="px-6 py-3 sm:py-2 border border-slate-600 rounded-full hover:bg-slate-800 transition text-center">
+                        Avisar Yuri no LinkedIn
                     </a>
                 </div>
             </div>
@@ -374,10 +374,14 @@
         let jobs = null;
         let lastDiscovery = 0;
         let lastState = 'CHECKING';
+        let startingSince = 0;
 
         const UI = {
             CHECKING:    { badge: ['running', 'Verificando o ambiente'], title: 'Verificando o ambiente', subtitle: DEFAULT_SUBTITLE,
                            hint: 'Consultando o estado da pipeline de deploy…' },
+            STARTING:    { badge: ['running', 'Ligando o ambiente'], title: 'Estamos ligando o ambiente',
+                           subtitle: 'A inicialização foi solicitada na AWS (ECS Fargate). Em geral leva cerca de 1 minuto, e você será levado ao chat assim que o servidor responder.',
+                           hint: 'A página está consultando a API a cada poucos segundos e leva você ao chat assim que ela responder.' },
             DEPLOYING:   { badge: ['running', 'Deploy em andamento'], title: 'Estamos preparando o ambiente', subtitle: DEFAULT_SUBTITLE,
                            hint: 'O andamento vem da execução real da pipeline no GitHub Actions e é atualizado a cada poucos segundos.' },
             PROPAGATING: { badge: ['running', 'Finalizando'], title: 'Quase pronto',
@@ -449,6 +453,9 @@
 
         // ---------- cronômetro ----------
         function elapsedSeconds() {
+            if (lastState === 'STARTING' && startingSince) {
+                return Math.max(0, Math.floor((Date.now() - startingSince) / 1000));
+            }
             if (lastState === 'DEPLOYING' && run) {
                 const since = Date.parse(run.run_started_at || run.created_at);
                 if (Number.isFinite(since)) return Math.max(0, Math.floor((Date.now() - since) / 1000));
@@ -460,8 +467,8 @@
             if (ready) return;
             const elapsed = elapsedSeconds();
             $('elapsed').textContent = formatElapsed(elapsed);
-            // Barra estimada (linear até 95%) só quando não há dados reais da pipeline.
-            if (lastState === 'DEGRADED') setProgress(Math.min(95, (elapsed / ESTIMATED_SECONDS) * 95));
+            // Barra estimada (linear até 95%) quando não há dados reais das fases da pipeline.
+            if (lastState === 'DEGRADED' || lastState === 'STARTING') setProgress(Math.min(95, (elapsed / ESTIMATED_SECONDS) * 95));
         }
 
         // ---------- estado da página ----------
@@ -474,7 +481,7 @@
             let badge = ui.badge;
             let title = ui.title;
             let showActions = state === 'FAILED' || state === 'IDLE';
-            if ((state === 'DEGRADED' || state === 'DEPLOYING') && elapsed >= DELAY_AFTER_SECONDS) {
+            if ((state === 'DEGRADED' || state === 'DEPLOYING' || state === 'STARTING') && elapsed >= DELAY_AFTER_SECONDS) {
                 showActions = true;
                 badge = ['delayed', 'Demorando mais que o esperado'];
                 title = 'O ambiente está demorando para subir';
@@ -515,6 +522,11 @@
                 text = failed ? `Falhou em: ${failed.label}` : 'A pipeline de deploy falhou.';
             } else if (state === 'IDLE') {
                 text = 'Nenhum deploy em andamento.';
+            } else if (state === 'STARTING') {
+                setProgress(Math.min(95, (elapsed / ESTIMATED_SECONDS) * 95));
+                text = elapsed > ESTIMATED_SECONDS
+                    ? 'Quase lá. Aguardando a API responder…'
+                    : `Iniciando ambiente na AWS (consulta ${attempts})…`;
             } else { // DEGRADED
                 text = elapsed > ESTIMATED_SECONDS
                     ? 'Quase lá. Aguardando a API responder…'
@@ -526,7 +538,7 @@
             $('start-btn').classList.toggle('hidden', state !== 'IDLE');
             $('retry-btn').classList.toggle('hidden', state === 'IDLE');
             $('retry-btn').textContent = 'Continuar tentando';
-            $('contact-link').textContent = state === 'IDLE' ? 'Avisar Yuri no LinkedIn' : 'Avisar que o ambiente não subiu';
+            $('contact-link').textContent = state === 'IDLE' ? 'Falar com Yuri no LinkedIn' : 'Avisar Yuri no LinkedIn';
             const showRunLink = showActions && run && run.html_url && state !== 'IDLE';
             $('run-link').classList.toggle('hidden', !showRunLink);
             if (showRunLink) $('run-link').href = run.html_url;
@@ -535,7 +547,13 @@
         function render() {
             if (ready) return;
             const degraded = githubError || Date.now() < limitedUntil;
-            lastState = resolveState({ health: false, run, now: Date.now(), degraded });
+            let state = resolveState({ health: false, run, now: Date.now(), degraded });
+            if (startingSince && (state === 'IDLE' || state === 'CHECKING' || state === 'DEGRADED')) {
+                state = 'STARTING';
+            } else if (state === 'DEPLOYING' || state === 'PROPAGATING') {
+                startingSince = 0;
+            }
+            lastState = state;
             applyState(lastState);
         }
 
@@ -615,6 +633,7 @@
 
         function onReady() {
             ready = true;
+            startingSince = 0;
             clearTimeout(pollTimer);
             clearTimeout(githubTimer);
             setProgress(100);
@@ -669,20 +688,24 @@
                     throw new Error(`Servidor respondeu ${res.status}`);
                 }
 
-                $('progress-text').textContent = 'Deploy solicitado! Verificando pipeline…';
-                showCopyFeedback('Inicialização solicitada com sucesso!');
-
-                // Força busca imediata de novo run no GitHub Actions e reinicia o polling
+                startingSince = Date.now();
+                attempts = 0;
                 lastDiscovery = 0;
                 limitedUntil = 0;
                 retryHiddenUntil = Date.now() + 60000;
-                $('delay-actions').classList.add('hidden');
+                showCopyFeedback('Inicialização solicitada com sucesso!');
+
                 clearTimeout(pollTimer);
                 clearTimeout(githubTimer);
+                render();
                 poll();
                 githubCycle();
             } catch (err) {
-                console.error('Falha ao acionar deploy:', err);
+                if (err instanceof TypeError) {
+                    console.error('Falha de rede ou CORS na resposta de /deploy (o servidor pode ter recebido a requisição mesmo assim):', err);
+                } else {
+                    console.error('Falha ao acionar deploy:', err);
+                }
                 $('progress-text').textContent = 'Não foi possível ligar automaticamente. Tente novamente.';
                 showCopyFeedback('Erro ao acionar inicialização.');
                 btn.disabled = false;

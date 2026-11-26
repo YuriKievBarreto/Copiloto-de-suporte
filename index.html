@@ -101,7 +101,7 @@
                 Estamos preparando o ambiente
             </h1>
             <p id="subtitle" class="text-base md:text-lg text-slate-400 leading-relaxed max-w-2xl">
-                O backend deste projeto não fica ligado o tempo todo, para não gerar custo à toa. Uma pipeline de deploy está ligando a instância na AWS e subindo os serviços. Em geral leva cerca de 4 minutos, e você será levado ao chat assim que tudo estiver pronto.
+                O backend deste projeto não fica ligado o tempo todo, para não gerar custo à toa. Uma pipeline de deploy está iniciando o container no AWS ECS Fargate e conectando a API. Em geral leva cerca de 1 minuto (ou ~2 minutos quando há nova versão), e você será levado ao chat assim que tudo estiver pronto.
             </p>
 
             <!-- Progresso -->
@@ -343,8 +343,8 @@
         const HEALTH_URL = 'https://dsi8s18du8.execute-api.us-east-1.amazonaws.com/prod/health'; // endpoint de saúde do backend
         const CHAT_URL = 'frontend/index.html';          // página do chat
         const GITHUB_API = 'https://api.github.com/repos/YuriKievBarreto/Copiloto-de-suporte';
-        const ESTIMATED_SECONDS = 240;                   // usado só quando o GitHub não responde (~4 min)
-        const DELAY_AFTER_SECONDS = 600;                 // depois disso, mostra aviso de demora
+        const ESTIMATED_SECONDS = 90;                    // usado só quando o GitHub não responde (~1m30s)
+        const DELAY_AFTER_SECONDS = 300;                 // depois disso, mostra aviso de demora (5 min)
         const POLL_INTERVAL_MS = 5000;                   // /health (AWS, sem limite de uso)
         const REQUEST_TIMEOUT_MS = 4000;                 // tempo máximo de cada consulta ao /health
         const REDIRECT_COUNTDOWN = 3;                    // segundos entre "pronto" e o redirecionamento

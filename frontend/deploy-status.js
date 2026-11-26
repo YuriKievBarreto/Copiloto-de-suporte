@@ -23,36 +23,30 @@
     'Set up job',
     'Complete job',
     'Checkout repository',
-    'Cleanup & Revoke SSH Ingress',
     'Summary',
   ]);
 
   const STEP_TO_PHASE = {
     'Configure AWS credentials': 'aws',
-    'Setup Terraform': 'aws',
-    'Terraform Init': 'aws',
-    'Terraform Validate': 'aws',
-    'Terraform Apply': 'instance',
-    'Extract Terraform Outputs': 'instance',
-    'Get GitHub Runner Public IP': 'access',
-    'Authorize Temporary SSH Ingress': 'access',
-    'Setup SSH Key & Wait for SSH': 'access',
-    'Prepare and Transfer Environment File': 'config',
-    'Transfer & Execute Remote Deploy Script': 'container',
+    'Validate ECS configuration': 'aws',
+    'Login to Amazon ECR': 'build',
+    'Build & Push Image to ECR': 'build',
+    'Stop Previous ECS Tasks': 'task',
+    'Start ECS Fargate Task': 'task',
+    'Wait for Task & Extract Public IP': 'network',
     'Update API Gateway Target': 'gateway',
     'External Smoke Test': 'verify',
   };
 
-  // weight = segundos medidos no run 45723914882 (4m16s no total)
+  // weight = segundos estimados por fase no deploy via ECS Fargate
   const PHASES = [
-    { id: 'tests', label: 'Testes automatizados', weight: 13 },
-    { id: 'aws', label: 'Preparando Terraform e credenciais', weight: 9 },
-    { id: 'instance', label: 'Criando a instância na AWS', weight: 28 },
-    { id: 'access', label: 'Abrindo acesso seguro temporário', weight: 4 },
-    { id: 'config', label: 'Enviando a configuração', weight: 1 },
-    { id: 'container', label: 'Construindo e iniciando o container', weight: 121 },
-    { id: 'gateway', label: 'Conectando o API Gateway', weight: 2 },
-    { id: 'verify', label: 'Verificação final de saúde', weight: 60 },
+    { id: 'tests', label: 'Testes automatizados', weight: 15 },
+    { id: 'aws', label: 'Autenticando na AWS', weight: 5 },
+    { id: 'build', label: 'Construindo e publicando imagem no ECR', weight: 55 },
+    { id: 'task', label: 'Iniciando container no ECS Fargate', weight: 10 },
+    { id: 'network', label: 'Aguardando container e obtendo IP público', weight: 25 },
+    { id: 'gateway', label: 'Conectando o API Gateway', weight: 3 },
+    { id: 'verify', label: 'Verificação final de saúde', weight: 15 },
   ];
 
   function isInfraStep(name) {
@@ -79,6 +73,10 @@
   function buildPhases(jobs) {
     const byPhase = {};
     for (const job of jobs || []) {
+      if (job.name === TEST_JOB_NAME && job.conclusion === 'skipped' && !(job.steps && job.steps.length)) {
+        (byPhase.tests ||= []).push({ status: 'completed', conclusion: 'skipped' });
+        continue;
+      }
       for (const step of job.steps || []) {
         const id = phaseForStep(job.name, step.name);
         if (!id) continue;
@@ -88,12 +86,14 @@
     return PHASES.map((p) => ({ ...p, status: phaseStatus(byPhase[p.id] || []) }));
   }
 
-  // Fase concluída conta o peso inteiro, em execução conta metade. Teto de 99:
-  // 100% só quando o /health responde (decisão da página, não da pipeline).
+  // Fase concluída conta o peso inteiro, em execução conta metade. Fases puladas ficam fora
+  // do denominador. Teto de 99: 100% só quando o /health responde.
   function computeProgress(phases) {
-    const total = phases.reduce((n, p) => n + p.weight, 0);
+    const active = phases.filter((p) => p.status !== 'skipped');
+    const total = active.reduce((n, p) => n + p.weight, 0);
+    if (total === 0) return 0;
     let done = 0;
-    for (const p of phases) {
+    for (const p of active) {
       if (p.status === 'done') done += p.weight;
       else if (p.status === 'running') done += p.weight / 2;
     }

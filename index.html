@@ -353,7 +353,7 @@
         const REQUEST_TIMEOUT_MS = 4000;                 // tempo máximo de cada consulta ao /health
         const REDIRECT_COUNTDOWN = 3;                    // segundos entre "pronto" e o redirecionamento
         // A API do GitHub sem token permite só 60 requisições/hora por IP: intervalo por estado.
-        const GITHUB_INTERVAL_MS = { CHECKING: 10000, DEPLOYING: 10000, PROPAGATING: 15000, DEGRADED: 30000, IDLE: 120000, FAILED: 120000 };
+        const GITHUB_INTERVAL_MS = { CHECKING: 10000, STARTING: 5000, DEPLOYING: 10000, PROPAGATING: 15000, DEGRADED: 30000, IDLE: 120000, FAILED: 120000 };
         const GITHUB_REDISCOVER_MS = 30000;              // com o run concluído, procura run novo a cada 30 s
         const RATE_LIMIT_FLOOR = 5;                      // abaixo disso, para de consultar o GitHub
 
@@ -609,7 +609,8 @@
         function needsDiscovery() {
             if (run === undefined) return true;
             const settled = run === null || run.status === 'completed';
-            return settled && Date.now() - lastDiscovery > GITHUB_REDISCOVER_MS;
+            const fastDiscovery = startingSince && (Date.now() - startingSince < 60000);
+            return settled && Date.now() - lastDiscovery > (fastDiscovery ? 4000 : GITHUB_REDISCOVER_MS);
         }
 
         async function githubCycle() {
@@ -628,7 +629,10 @@
             }
             githubBusy = false;
             render();
-            if (!ready) githubTimer = setTimeout(githubCycle, GITHUB_INTERVAL_MS[lastState] || 10000);
+            const nextInterval = (lastState === 'STARTING' && startingSince && Date.now() - startingSince >= 60000)
+                ? 15000
+                : (GITHUB_INTERVAL_MS[lastState] || 10000);
+            if (!ready) githubTimer = setTimeout(githubCycle, nextInterval);
         }
 
         function onReady() {
@@ -699,7 +703,8 @@
                 clearTimeout(githubTimer);
                 render();
                 poll();
-                githubCycle();
+                // Aguarda 3s para dar tempo de o novo workflow run aparecer na API do GitHub.
+                githubTimer = setTimeout(githubCycle, 3000);
             } catch (err) {
                 if (err instanceof TypeError) {
                     console.error('Falha de rede ou CORS na resposta de /deploy (o servidor pode ter recebido a requisição mesmo assim):', err);

@@ -4,10 +4,15 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - 'docs/**'
-      - 'README.md'
-      - '.gitignore'
+    paths:
+      - 'app/**'
+      - 'db/**'
+      - 'indexing/**'
+      - 'rag_documents/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'dockerfile'
+      - '.dockerignore'
   workflow_dispatch:
     inputs:
       rebuild_image:

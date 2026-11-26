@@ -17,6 +17,10 @@ concurrency:
 permissions:
   contents: read
 
+# NOTA DE CONTRATO: Os nomes dos jobs e steps abaixo (ex: "Run Unit Tests",
+# "Terraform Plan & Apply", "Setup remote environment & deploy", "Smoke Test Healthcheck")
+# são mapeados e exibidos em tempo real na landing page de espera (frontend/deploy-status.js).
+# Caso renomeie steps ou jobs, atualize o dicionário STEP_TO_PHASE em frontend/deploy-status.js.
 jobs:
   test:
     name: Run Unit Tests

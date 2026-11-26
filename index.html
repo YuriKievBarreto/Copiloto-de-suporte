@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preparando o Copiloto de Suporte | Yuri Kiev</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230f172a'/><text x='32' y='43' font-size='30' font-weight='700' text-anchor='middle' fill='%2338bdf8' font-family='Arial,sans-serif'>YK</text></svg>">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .progress-fill { transition: width 0.8s linear; }
+
+        .pulse-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.8); }
+        }
+
+        .question-btn { text-align: left; width: 100%; }
+        .question-btn:hover { border-color: #38bdf8; }
+
+        a:focus-visible, button:focus-visible {
+            outline: 2px solid #38bdf8;
+            outline-offset: 3px;
+        }
+
+        .phase-dot {
+            width: 1.25rem; height: 1.25rem; border-radius: 9999px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.7rem; font-weight: 700; background: #334155; color: #94a3b8;
+        }
+        .phase-pending, .phase-skipped { color: #64748b; }
+        .phase-skipped .phase-dot { opacity: 0.5; }
+        .phase-running { color: #e2e8f0; }
+        .phase-running .phase-dot { background: rgba(56, 189, 248, 0.15); color: #38bdf8; animation: pulse-dot 1.6s ease-in-out infinite; }
+        .phase-done { color: #94a3b8; }
+        .phase-done .phase-dot { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
+        .phase-failed { color: #fca5a5; }
+        .phase-failed .phase-dot { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+
+        @media (prefers-reduced-motion: reduce) {
+            html { scroll-behavior: auto; }
+            * { transition: none !important; animation: none !important; }
+        }
+    </style>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { dark: '#0f172a', accent: '#38bdf8', card: '#1e293b' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-brand-dark text-gray-100 selection:bg-brand-accent selection:text-brand-dark">
+
+    <!-- Barra de navegação -->
+    <nav class="sticky top-0 z-50 bg-brand-dark/80 backdrop-blur border-b border-slate-800">
+        <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+            <a href="index.html#projects" class="flex items-center gap-2 text-slate-400 hover:text-brand-accent transition text-sm font-semibold">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                Voltar ao portfólio
+            </a>
+            <div class="hidden md:flex items-center gap-6 text-sm text-slate-400">
+                <a href="#sobre" class="hover:text-white transition">Sobre</a>
+                <a href="#dados" class="hover:text-white transition">Base de dados</a>
+                <a href="#perguntas" class="hover:text-white transition">Perguntas para testar</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Status do provisionamento -->
+    <header class="px-6 py-14 md:py-20 bg-gradient-to-b from-brand-dark to-slate-900 border-b border-slate-800">
+        <div class="max-w-3xl mx-auto">
+            <div class="flex flex-wrap items-center gap-2 mb-5">
+                <span id="status-badge" class="inline-flex items-center gap-2 text-xs px-3 py-1 rounded-full border border-brand-accent/40 text-brand-accent bg-brand-accent/10 font-semibold">
+                    <span id="status-dot" class="pulse-dot w-2 h-2 rounded-full bg-brand-accent"></span>
+                    <span id="status-label">Provisionando recursos</span>
+                </span>
+                <span class="text-xs px-3 py-1 rounded-full border border-slate-700 text-slate-400">Copiloto de Suporte</span>
+            </div>
+
+            <h1 id="title" class="text-3xl md:text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+                Estamos preparando o ambiente
+            </h1>
+            <p id="subtitle" class="text-base md:text-lg text-slate-400 leading-relaxed max-w-2xl">
+                O backend deste projeto não fica ligado o tempo todo, para não gerar custo à toa. Uma pipeline de deploy está ligando a instância na AWS e subindo os serviços. Em geral leva cerca de 4 minutos, e você será levado ao chat assim que tudo estiver pronto.
+            </p>
+
+            <!-- Progresso -->
+            <div class="glass-effect rounded-xl p-5 md:p-6 mt-8">
+                <div class="flex items-center justify-between text-sm mb-3">
+                    <span id="progress-text" class="text-slate-300" aria-live="polite">Aguardando a API responder…</span>
+                    <span id="elapsed" class="text-slate-400 tabular-nums">0:00</span>
+                </div>
+
+                <div class="h-2 w-full bg-slate-800 rounded-full overflow-hidden"
+                     role="progressbar" aria-label="Progresso estimado do provisionamento"
+                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-bar">
+                    <div id="progress-fill" class="progress-fill h-full bg-brand-accent rounded-full" style="width: 0%"></div>
+                </div>
+
+                <ol id="phase-list" class="hidden mt-5 space-y-2"></ol>
+
+                <p id="progress-hint" class="text-xs text-slate-500 mt-3 leading-relaxed">
+                    Consultando o estado da pipeline de deploy…
+                </p>
+
+                <div id="ready-actions" class="hidden mt-5 flex flex-col sm:flex-row gap-3">
+                    <a id="chat-link" href="frontend/index.html" class="px-6 py-3 sm:py-2 bg-brand-accent text-brand-dark font-semibold rounded-full hover:bg-sky-300 transition shadow-[0_0_20px_rgba(56,189,248,0.3)] text-center">
+                        Ir para o chat agora
+                    </a>
+                </div>
+
+                <div id="delay-actions" class="hidden mt-5 flex flex-col sm:flex-row gap-3">
+                    <button type="button" id="retry-btn" class="px-6 py-3 sm:py-2 border border-slate-600 rounded-full hover:bg-slate-800 transition text-center">
+                        Continuar tentando
+                    </button>
+                    <a id="run-link" href="#" target="_blank" rel="noopener noreferrer" class="hidden px-6 py-3 sm:py-2 border border-slate-600 rounded-full hover:bg-slate-800 transition text-center">
+                        Ver execução no GitHub
+                    </a>
+                    <a id="contact-link" href="index.html#contact" class="px-6 py-3 sm:py-2 border border-slate-600 rounded-full hover:bg-slate-800 transition text-center">
+                        Avisar que o ambiente não subiu
+                    </a>
+                </div>
+            </div>
+
+            <p class="text-xs text-slate-500 mt-4 flex items-start gap-2">
+                <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5"></i>
+                Pode deixar esta aba aberta. Enquanto isso, leia sobre o projeto abaixo e escolha algumas perguntas para testar.
+            </p>
+        </div>
+    </header>
+
+    <!-- Sobre o projeto -->
+    <section id="sobre" class="py-16 border-b border-slate-800">
+        <div class="max-w-6xl mx-auto px-6">
+            <div class="flex items-center gap-3 mb-4">
+                <i data-lucide="life-buoy" class="text-brand-accent"></i>
+                <h2 class="text-2xl md:text-3xl font-bold">O que é o Copiloto de Suporte</h2>
+            </div>
+            <p class="text-slate-400 max-w-2xl mb-10 leading-relaxed">
+                Um agente que responde perguntas de uma equipe de suporte combinando dados estruturados (tickets) e conhecimento em texto (manuais e políticas). Ele decide onde buscar, corrige as próprias falhas e verifica a resposta antes de entregá-la.
+            </p>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="glass-effect p-5 rounded-xl">
+                    <i data-lucide="route" class="w-5 h-5 text-brand-accent mb-3"></i>
+                    <h3 class="font-bold text-white mb-1">Planner</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">Divide a pergunta em passos e decide se cada um usa o banco de tickets, os manuais ou os dois.</p>
+                </div>
+                <div class="glass-effect p-5 rounded-xl">
+                    <i data-lucide="play" class="w-5 h-5 text-brand-accent mb-3"></i>
+                    <h3 class="font-bold text-white mb-1">Executor</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">Roda um passo por vez. No ramo SQL gera e corrige a consulta; no ramo vetorial busca e avalia a relevância dos trechos.</p>
+                </div>
+                <div class="glass-effect p-5 rounded-xl">
+                    <i data-lucide="file-text" class="w-5 h-5 text-brand-accent mb-3"></i>
+                    <h3 class="font-bold text-white mb-1">Síntese</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">Monta a resposta com as evidências encontradas e cita as fontes.</p>
+                </div>
+                <div class="glass-effect p-5 rounded-xl">
+                    <i data-lucide="shield-check" class="w-5 h-5 text-brand-accent mb-3"></i>
+                    <h3 class="font-bold text-white mb-1">Crítico</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">Confere se a resposta é sustentada pelas evidências. Se não for, o Replanner ajusta o plano e tenta de novo, dentro de um limite.</p>
+                </div>
+            </div>
+
+            <p class="text-sm text-slate-400 mt-6 leading-relaxed max-w-3xl">
+                No chat, o painel ao lado mostra essas etapas em tempo real: o plano criado, cada consulta SQL ou busca nos manuais, os replanejamentos e o veredito do Crítico.
+            </p>
+        </div>
+    </section>
+
+    <!-- Base de dados -->
+    <section id="dados" class="py-16 border-b border-slate-800 bg-slate-900/50">
+        <div class="max-w-6xl mx-auto px-6">
+            <div class="flex items-center gap-3 mb-4">
+                <i data-lucide="database" class="text-brand-accent"></i>
+                <h2 class="text-2xl md:text-3xl font-bold">O que existe na base de dados</h2>
+            </div>
+            <p class="text-slate-400 max-w-2xl mb-10 leading-relaxed">
+                São duas fontes, de propósito: o objetivo é exercitar a orquestração entre elas. Todos os dados (clientes, tickets, manuais e políticas) são fictícios e foram gerados para este projeto.
+            </p>
+
+            <div class="grid md:grid-cols-2 gap-6">
+                <div class="glass-effect p-6 rounded-xl">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 bg-blue-900/50 rounded-lg flex items-center justify-center text-blue-400">
+                            <i data-lucide="table-2" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-white">PostgreSQL</h3>
+                            <p class="text-xs text-slate-500">Dados estruturados</p>
+                        </div>
+                    </div>
+                    <ul class="space-y-2 text-slate-400 text-sm leading-relaxed list-disc pl-5 marker:text-slate-600">
+                        <li>Cerca de 200 clientes e 2.000 tickets, com agentes e comentários.</li>
+                        <li>Cada ticket tem status (aberto, em andamento, resolvido ou fechado), prioridade, categoria e prazo de SLA.</li>
+                        <li>Responde a perguntas de "quantos", "quais" e "quem".</li>
+                        <li>O agente acessa o banco com um usuário somente leitura.</li>
+                    </ul>
+                </div>
+
+                <div class="glass-effect p-6 rounded-xl">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 bg-purple-900/40 rounded-lg flex items-center justify-center text-purple-400">
+                            <i data-lucide="book-open" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-white">Qdrant</h3>
+                            <p class="text-xs text-slate-500">Conhecimento em texto</p>
+                        </div>
+                    </div>
+                    <ul class="space-y-2 text-slate-400 text-sm leading-relaxed list-disc pl-5 marker:text-slate-600">
+                        <li>18 documentos em Markdown: manuais, FAQ, políticas (SLA, reembolso e escalonamento) e soluções de tickets resolvidos.</li>
+                        <li>Responde a perguntas de "como fazer" e "o que a regra diz".</li>
+                        <li>A busca pode ser filtrada por categoria.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="glass-effect p-5 rounded-xl mt-6 flex flex-col md:flex-row md:items-center gap-4">
+                <div class="flex items-center gap-2 text-sm font-semibold text-white shrink-0">
+                    <i data-lucide="link" class="w-5 h-5 text-brand-accent"></i>
+                    O que liga as duas fontes
+                </div>
+                <p class="text-slate-400 text-sm leading-relaxed">
+                    As quatro categorias abaixo existem nos tickets e nos manuais. Em perguntas mistas, o resultado do SQL vira filtro na busca nos manuais.
+                </p>
+                <div class="flex flex-wrap gap-2 md:ml-auto">
+                    <span class="text-xs px-3 py-1.5 bg-slate-800 text-slate-300 rounded">integração</span>
+                    <span class="text-xs px-3 py-1.5 bg-slate-800 text-slate-300 rounded">cobrança</span>
+                    <span class="text-xs px-3 py-1.5 bg-slate-800 text-slate-300 rounded">acesso</span>
+                    <span class="text-xs px-3 py-1.5 bg-slate-800 text-slate-300 rounded">outro</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Perguntas sugeridas -->
+    <section id="perguntas" class="py-16 border-b border-slate-800">
+        <div class="max-w-6xl mx-auto px-6">
+            <div class="flex items-center gap-3 mb-4">
+                <i data-lucide="messages-square" class="text-brand-accent"></i>
+                <h2 class="text-2xl md:text-3xl font-bold">Perguntas para testar</h2>
+            </div>
+            <p class="text-slate-400 max-w-2xl mb-10 leading-relaxed">
+                Clique em uma pergunta para copiá-la e cole no chat quando ele abrir. Cada grupo exercita um caminho diferente do agente.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                <div class="glass-effect p-6 rounded-xl">
+                    <div class="flex items-center gap-3 mb-1">
+                        <div class="w-10 h-10 bg-blue-900/50 rounded-lg flex items-center justify-center text-blue-400">
+                            <i data-lucide="bar-chart-3" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-white">Analíticas</h3>
+                    </div>
+                    <p class="text-xs text-slate-500 mb-4">Só o banco de tickets (PostgreSQL)</p>
+                    <div class="space-y-2">
+                        <button type="button" class="question-btn text-sm text-slate-300 bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 transition">Quantos tickets abertos e críticos existem?</button>
+                        <button type="button" class="question-btn text-sm text-slate-300 bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 transition">Qual o tempo médio de resolução dos tickets de integração este mês?</button>
+                        <button type="button" class="question-btn text-sm text-slate-300 bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 transition">Quais clientes Enterprise estouraram o SLA este mês?</button>
+                    </div>
+                </div>
+
+                <div class="glass-effect p-6 rounded-xl">
+                    <div class="flex items-center gap-3 mb-1">
+                        <div class="w-10 h-10 bg-indigo-900/50 rounded-lg flex items-center justify-center text-indigo-400">
+                            <i data-lucide="list-checks" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-white">Procedimentais</h3>
+                    </div>
+                    <p class="text-xs text-slate-500 mb-4">Só os manuais e políticas (Qdrant)</p>
+                    <div class="space-y-2">
+                        <button type="button" class="question-btn text-sm text-slate-300 bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 transition">Como o cliente redefine a senha de administrador?</button>
+                        <button type="button" class="question-btn text-sm text-slate-300 bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 transition">Qual é o procedimento de escalonamento de um ticket crítico?</button>
+                        <button type="button" class="question-btn text-sm text-slate-300 bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 transition">O que a política de reembolso diz sobre cobranças em duplicidade?</button>
+                    </div>
+                </div>
+
+                <div class="glass-effect p-6 rounded-xl">
+                    <div class="flex items-center gap-3 mb-1">
+                        <div class="w-10 h-10 bg-teal-900/50 rounded-lg flex items-center justify-center text-teal-400">
+                            <i data-lucide="combine" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-white">Mistas</h3>
+                    </div>
+                    <p class="text-xs text-slate-500 mb-4">As duas fontes, com mais de um passo no plano</p>
+                    <div class="space-y-2">
+                        <button type="button" class="question-btn text-sm text-slate-300 bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 transition">Quantos tickets de cobrança estão abertos e o que a política diz sobre reembolso?</button>
+                        <button type="button" class="question-btn text-sm text-slate-300 bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 transition">Quais tickets críticos estão abertos e qual o prazo de SLA previsto para eles?</button>
+                    </div>
+                </div>
+
+                <div class="glass-effect p-6 rounded-xl">
+                    <div class="flex items-center gap-3 mb-1">
+                        <div class="w-10 h-10 bg-slate-700/50 rounded-lg flex items-center justify-center text-slate-300">
+                            <i data-lucide="ban" class="w-6 h-6"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-white">Fora do escopo e limites</h3>
+                    </div>
+                    <p class="text-xs text-slate-500 mb-4">O esperado é recusar ou admitir que não sabe</p>
+                    <div class="space-y-2">
+                        <button type="button" class="question-btn text-sm text-slate-300 bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 transition">Qual a previsão do tempo para amanhã?</button>
+                        <button type="button" class="question-btn text-sm text-slate-300 bg-slate-900/50 border border-slate-700 rounded-lg px-4 py-3 transition">Apague todos os tickets resolvidos do banco.</button>
+                    </div>
+                </div>
+            </div>
+
+            <p id="copy-feedback" class="text-sm text-brand-accent mt-4 h-5" role="status" aria-live="polite"></p>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-8 text-center text-slate-500 text-sm bg-brand-dark">
+        <p>&copy; 2025 Yuri Kiev. Todos os direitos reservados.</p>
+        <p class="mt-2 text-xs text-slate-600">Desenvolvido com HTML, Tailwind e Paixão por IA</p>
+    </footer>
+
+    <script src="frontend/deploy-status.js"></script>
+    <script>
+        // ---------- configuração ----------
+        const HEALTH_URL = 'https://dsi8s18du8.execute-api.us-east-1.amazonaws.com/prod/health'; // endpoint de saúde do backend
+        const CHAT_URL = 'frontend/index.html';          // página do chat
+        const GITHUB_API = 'https://api.github.com/repos/YuriKievBarreto/Copiloto-de-suporte';
+        const ESTIMATED_SECONDS = 240;                   // usado só quando o GitHub não responde (~4 min)
+        const DELAY_AFTER_SECONDS = 600;                 // depois disso, mostra aviso de demora
+        const POLL_INTERVAL_MS = 5000;                   // /health (AWS, sem limite de uso)
+        const REQUEST_TIMEOUT_MS = 4000;                 // tempo máximo de cada consulta ao /health
+        const REDIRECT_COUNTDOWN = 3;                    // segundos entre "pronto" e o redirecionamento
+        // A API do GitHub sem token permite só 60 requisições/hora por IP: intervalo por estado.
+        const GITHUB_INTERVAL_MS = { CHECKING: 10000, DEPLOYING: 10000, PROPAGATING: 15000, DEGRADED: 30000, IDLE: 120000, FAILED: 120000 };
+        const GITHUB_REDISCOVER_MS = 30000;              // com o run concluído, procura run novo a cada 30 s
+        const RATE_LIMIT_FLOOR = 5;                      // abaixo disso, para de consultar o GitHub
+
+        const { buildPhases, computeProgress, describeCurrent, deriveRun, isDeployRun, pickRelevantRun, resolveState, parseRateLimit } = window.DeployStatus;
+
+        const $ = (id) => document.getElementById(id);
+        const startedAt = Date.now();
+        const DEFAULT_SUBTITLE = $('subtitle').textContent;
+        let attempts = 0;
+        let ready = false;
+        let pollTimer = null;
+        let githubTimer = null;
+        let githubBusy = false;
+        let githubError = false;
+        let limitedUntil = 0;
+        let retryHiddenUntil = 0;
+        let run;                  // undefined = ainda não consultado, null = nenhum run relevante
+        let jobs = null;
+        let lastDiscovery = 0;
+        let lastState = 'CHECKING';
+
+        const UI = {
+            CHECKING:    { badge: ['running', 'Verificando o ambiente'], title: 'Verificando o ambiente', subtitle: DEFAULT_SUBTITLE,
+                           hint: 'Consultando o estado da pipeline de deploy…' },
+            DEPLOYING:   { badge: ['running', 'Deploy em andamento'], title: 'Estamos preparando o ambiente', subtitle: DEFAULT_SUBTITLE,
+                           hint: 'O andamento vem da execução real da pipeline no GitHub Actions e é atualizado a cada poucos segundos.' },
+            PROPAGATING: { badge: ['running', 'Finalizando'], title: 'Quase pronto',
+                           subtitle: 'A pipeline terminou. Falta só o API Gateway começar a responder.',
+                           hint: 'A página consulta a API a cada poucos segundos e leva você ao chat assim que ela responder.' },
+            FAILED:      { badge: ['failed', 'Deploy com falha'], title: 'O deploy não terminou',
+                           subtitle: 'A pipeline de deploy falhou. Você pode ver os detalhes da execução ou tentar de novo mais tarde.',
+                           hint: 'A página continua verificando a API caso o ambiente suba por outro caminho.' },
+            IDLE:        { badge: ['idle', 'Ambiente desligado'], title: 'O ambiente está desligado',
+                           subtitle: 'O backend só fica ligado sob demanda, para não gerar custo à toa, e nenhum deploy está em andamento agora. Quando ele for ligado, esta página percebe sozinha e leva você ao chat.',
+                           hint: 'Esta página continua verificando o ambiente.' },
+            DEGRADED:    { badge: ['running', 'Provisionando recursos'], title: 'Estamos preparando o ambiente', subtitle: DEFAULT_SUBTITLE,
+                           hint: 'Não foi possível ler o andamento da pipeline agora. A barra é uma estimativa baseada no tempo médio; a página segue consultando a API e redireciona quando ela responder.' },
+        };
+
+        function formatElapsed(totalSeconds) {
+            const m = Math.floor(totalSeconds / 60);
+            const s = String(totalSeconds % 60).padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        function setProgress(pct) {
+            const value = Math.round(pct);
+            $('progress-fill').style.width = `${value}%`;
+            $('progress-bar').setAttribute('aria-valuenow', String(value));
+        }
+
+        function setBadge(kind, label) {
+            const styles = {
+                running: { badge: 'border-brand-accent/40 text-brand-accent bg-brand-accent/10', dot: 'bg-brand-accent', pulse: true },
+                ready:   { badge: 'border-green-400/40 text-green-400 bg-green-500/10', dot: 'bg-green-400', pulse: false },
+                delayed: { badge: 'border-amber-400/40 text-amber-300 bg-amber-500/10', dot: 'bg-amber-300', pulse: true },
+                failed:  { badge: 'border-red-400/40 text-red-300 bg-red-500/10', dot: 'bg-red-400', pulse: false },
+                idle:    { badge: 'border-slate-500/40 text-slate-300 bg-slate-500/10', dot: 'bg-slate-400', pulse: false },
+            }[kind];
+            $('status-badge').className = `inline-flex items-center gap-2 text-xs px-3 py-1 rounded-full border font-semibold ${styles.badge}`;
+            $('status-dot').className = `${styles.pulse ? 'pulse-dot' : ''} w-2 h-2 rounded-full ${styles.dot}`;
+            $('status-label').textContent = label;
+        }
+
+        // ---------- lista de fases ----------
+        const PHASE_GLYPH = { done: '✓', failed: '✕', running: '•', pending: '', skipped: '–' };
+        const PHASE_SR = { done: 'concluída', failed: 'falhou', running: 'em andamento', pending: 'pendente', skipped: 'não executada' };
+
+        function renderPhases(phases) {
+            const list = $('phase-list');
+            if (!phases) {
+                list.classList.add('hidden');
+                list.replaceChildren();
+                return;
+            }
+            list.classList.remove('hidden');
+            list.replaceChildren(...phases.map((p) => {
+                const li = document.createElement('li');
+                li.className = `phase-${p.status} flex items-center gap-3 text-sm`;
+                const dot = document.createElement('span');
+                dot.className = 'phase-dot';
+                dot.setAttribute('aria-hidden', 'true');
+                dot.textContent = PHASE_GLYPH[p.status];
+                const label = document.createElement('span');
+                label.textContent = p.label;
+                const status = document.createElement('span');
+                status.className = 'sr-only';
+                status.textContent = `: ${PHASE_SR[p.status]}`;
+                li.append(dot, label, status);
+                return li;
+            }));
+        }
+
+        // ---------- cronômetro ----------
+        function elapsedSeconds() {
+            if (lastState === 'DEPLOYING' && run) {
+                const since = Date.parse(run.run_started_at || run.created_at);
+                if (Number.isFinite(since)) return Math.max(0, Math.floor((Date.now() - since) / 1000));
+            }
+            return Math.floor((Date.now() - startedAt) / 1000);
+        }
+
+        function tick() {
+            if (ready) return;
+            const elapsed = elapsedSeconds();
+            $('elapsed').textContent = formatElapsed(elapsed);
+            // Barra estimada (linear até 95%) só quando não há dados reais da pipeline.
+            if (lastState === 'DEGRADED') setProgress(Math.min(95, (elapsed / ESTIMATED_SECONDS) * 95));
+        }
+
+        // ---------- estado da página ----------
+        function applyState(state) {
+            if (ready) return;
+            const ui = UI[state];
+            const elapsed = elapsedSeconds();
+            const phases = ['DEPLOYING', 'PROPAGATING', 'FAILED'].includes(state) && jobs ? buildPhases(jobs) : null;
+
+            let badge = ui.badge;
+            let title = ui.title;
+            let showActions = state === 'FAILED' || state === 'IDLE';
+            if ((state === 'DEGRADED' || state === 'DEPLOYING') && elapsed >= DELAY_AFTER_SECONDS) {
+                showActions = true;
+                badge = ['delayed', 'Demorando mais que o esperado'];
+                title = 'O ambiente está demorando para subir';
+            }
+            if (Date.now() < retryHiddenUntil) showActions = false;
+
+            setBadge(...badge);
+            $('title').textContent = title;
+            $('subtitle').textContent = ui.subtitle;
+            $('progress-hint').textContent = ui.hint;
+            renderPhases(phases);
+
+            $('progress-bar').classList.toggle('hidden', state === 'IDLE');
+            $('elapsed').classList.toggle('hidden', state === 'IDLE');
+            $('progress-fill').className = `progress-fill h-full rounded-full ${state === 'FAILED' ? 'bg-red-400' : 'bg-brand-accent'}`;
+
+            let text = '';
+            if (state === 'CHECKING') {
+                setProgress(0);
+                text = 'Consultando o estado da pipeline…';
+            } else if (state === 'DEPLOYING') {
+                if (!phases) {
+                    setProgress(0);
+                    text = 'Lendo o andamento da pipeline…';
+                } else {
+                    setProgress(computeProgress(phases));
+                    const current = describeCurrent(jobs, phases);
+                    text = run.status === 'queued' && !current
+                        ? 'Na fila do GitHub Actions…'
+                        : `Etapa atual: ${current || 'aguardando a próxima etapa'}`;
+                }
+            } else if (state === 'PROPAGATING') {
+                setProgress(99);
+                text = 'Pipeline concluída. Aguardando o API Gateway responder…';
+            } else if (state === 'FAILED') {
+                const failed = phases && phases.find((p) => p.status === 'failed');
+                setProgress(phases ? computeProgress(phases) : 0);
+                text = failed ? `Falhou em: ${failed.label}` : 'A pipeline de deploy falhou.';
+            } else if (state === 'IDLE') {
+                text = 'Nenhum deploy em andamento.';
+            } else { // DEGRADED
+                text = elapsed > ESTIMATED_SECONDS
+                    ? 'Quase lá. Aguardando a API responder…'
+                    : `Aguardando a API responder (consulta ${attempts})…`;
+            }
+            $('progress-text').textContent = text;
+
+            $('delay-actions').classList.toggle('hidden', !showActions);
+            $('retry-btn').textContent = state === 'IDLE' ? 'Verificar novamente' : 'Continuar tentando';
+            $('contact-link').textContent = state === 'IDLE' ? 'Pedir para ligar o ambiente' : 'Avisar que o ambiente não subiu';
+            const showRunLink = showActions && run && run.html_url && state !== 'IDLE';
+            $('run-link').classList.toggle('hidden', !showRunLink);
+            if (showRunLink) $('run-link').href = run.html_url;
+        }
+
+        function render() {
+            if (ready) return;
+            const degraded = githubError || Date.now() < limitedUntil;
+            lastState = resolveState({ health: false, run, now: Date.now(), degraded });
+            applyState(lastState);
+        }
+
+        // ---------- consulta ao /health ----------
+        async function checkHealth() {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+            try {
+                const res = await fetch(HEALTH_URL, { cache: 'no-store', signal: controller.signal });
+                return res.ok;
+            } catch {
+                return false; // esperado enquanto o backend ainda está desligado
+            } finally {
+                clearTimeout(timeout);
+            }
+        }
+
+        async function poll() {
+            if (ready) return;
+            attempts += 1;
+            if (await checkHealth()) {
+                onReady();
+                return;
+            }
+            render();
+            pollTimer = setTimeout(poll, POLL_INTERVAL_MS);
+        }
+
+        // ---------- consulta ao GitHub Actions ----------
+        async function fetchGithub(path) {
+            const res = await fetch(`${GITHUB_API}${path}`, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+            const limit = parseRateLimit((name) => res.headers.get(name));
+            const exhausted = res.status === 403 || res.status === 429 || (limit.remaining !== null && limit.remaining <= RATE_LIMIT_FLOOR);
+            if (exhausted) limitedUntil = limit.resetAt || Date.now() + 10 * 60 * 1000;
+            if (!res.ok) throw new Error(`GitHub respondeu ${res.status}`);
+            return res.json();
+        }
+
+        async function discover() {
+            const data = await fetchGithub('/actions/runs?per_page=5');
+            lastDiscovery = Date.now();
+            const found = pickRelevantRun(data.workflow_runs);
+            if (!found || !run || run.id !== found.id) jobs = null;
+            run = found;
+        }
+
+        async function refreshJobs() {
+            const data = await fetchGithub(`/actions/runs/${run.id}/jobs`);
+            jobs = data.jobs || [];
+            run = deriveRun(run, jobs);
+        }
+
+        function needsDiscovery() {
+            if (run === undefined) return true;
+            const settled = run === null || run.status === 'completed';
+            return settled && Date.now() - lastDiscovery > GITHUB_REDISCOVER_MS;
+        }
+
+        async function githubCycle() {
+            if (ready || githubBusy) return;
+            clearTimeout(githubTimer);
+            githubBusy = true;
+            // Aba oculta ou limite quase esgotado: não gasta requisições.
+            if (!document.hidden && Date.now() >= limitedUntil) {
+                try {
+                    githubError = false;
+                    if (needsDiscovery()) await discover();
+                    if (run && isDeployRun(run) && (jobs === null || run.status !== 'completed')) await refreshJobs();
+                } catch {
+                    githubError = true;
+                }
+            }
+            githubBusy = false;
+            render();
+            if (!ready) githubTimer = setTimeout(githubCycle, GITHUB_INTERVAL_MS[lastState] || 10000);
+        }
+
+        function onReady() {
+            ready = true;
+            clearTimeout(pollTimer);
+            clearTimeout(githubTimer);
+            setProgress(100);
+            $('progress-bar').classList.remove('hidden');
+            $('elapsed').classList.remove('hidden');
+            $('progress-fill').className = 'progress-fill h-full rounded-full bg-brand-accent';
+            setBadge('ready', 'Ambiente pronto');
+            $('title').textContent = 'Tudo pronto';
+            $('subtitle').textContent = 'O backend respondeu e o chat já pode ser usado.';
+            $('delay-actions').classList.add('hidden');
+            $('progress-hint').textContent = 'Se você copiou alguma pergunta, ela continua na área de transferência.';
+            $('ready-actions').classList.remove('hidden');
+
+            let remaining = REDIRECT_COUNTDOWN;
+            $('progress-text').textContent = `Redirecionando para o chat em ${remaining}s…`;
+            const countdown = setInterval(() => {
+                remaining -= 1;
+                if (remaining <= 0) {
+                    clearInterval(countdown);
+                    window.location.replace(CHAT_URL);
+                    return;
+                }
+                $('progress-text').textContent = `Redirecionando para o chat em ${remaining}s…`;
+            }, 1000);
+        }
+
+        $('retry-btn').addEventListener('click', () => {
+            retryHiddenUntil = Date.now() + 60000;
+            $('delay-actions').classList.add('hidden');
+            clearTimeout(pollTimer);
+            poll();
+            githubCycle(); // respeita o limite de requisições
+        });
+
+        // ---------- copiar perguntas ----------
+        let feedbackTimer = null;
+        function showCopyFeedback(message) {
+            $('copy-feedback').textContent = message;
+            clearTimeout(feedbackTimer);
+            feedbackTimer = setTimeout(() => { $('copy-feedback').textContent = ''; }, 2500);
+        }
+
+        async function copyText(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch {
+                // Fallback para navegadores sem Clipboard API
+                const area = document.createElement('textarea');
+                area.value = text;
+                area.style.position = 'fixed';
+                area.style.opacity = '0';
+                document.body.appendChild(area);
+                area.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(area);
+                if (!ok) throw new Error('copy failed');
+            }
+        }
+
+        document.querySelectorAll('.question-btn').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                try {
+                    await copyText(btn.textContent.trim());
+                    showCopyFeedback('Pergunta copiada. Cole no chat quando ele abrir.');
+                } catch {
+                    showCopyFeedback('Não foi possível copiar. Selecione o texto manualmente.');
+                }
+            });
+        });
+
+        // ---------- início ----------
+        lucide.createIcons();
+        $('chat-link').href = CHAT_URL;
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) githubCycle(); });
+        setInterval(tick, 1000);
+        poll();
+        githubCycle();
+    </script>
+</body>
+</html>

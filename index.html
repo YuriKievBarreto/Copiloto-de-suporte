@@ -130,6 +130,9 @@
                 </div>
 
                 <div id="delay-actions" class="hidden mt-5 flex flex-col sm:flex-row gap-3">
+                    <button type="button" id="start-btn" class="hidden px-6 py-3 sm:py-2 bg-brand-accent text-brand-dark font-semibold rounded-full hover:bg-sky-300 transition shadow-[0_0_20px_rgba(56,189,248,0.3)] text-center">
+                        Ligar ambiente agora
+                    </button>
                     <button type="button" id="retry-btn" class="px-6 py-3 sm:py-2 border border-slate-600 rounded-full hover:bg-slate-800 transition text-center">
                         Continuar tentando
                     </button>
@@ -341,6 +344,7 @@
     <script>
         // ---------- configuração ----------
         const HEALTH_URL = 'https://dsi8s18du8.execute-api.us-east-1.amazonaws.com/prod/health'; // endpoint de saúde do backend
+        const DEPLOY_TRIGGER_URL = 'https://dsi8s18du8.execute-api.us-east-1.amazonaws.com/prod/deploy'; // endpoint de disparo do deploy
         const CHAT_URL = 'frontend/index.html';          // página do chat
         const GITHUB_API = 'https://api.github.com/repos/YuriKievBarreto/Copiloto-de-suporte';
         const ESTIMATED_SECONDS = 90;                    // usado só quando o GitHub não responde (~1m30s)
@@ -519,8 +523,10 @@
             $('progress-text').textContent = text;
 
             $('delay-actions').classList.toggle('hidden', !showActions);
-            $('retry-btn').textContent = state === 'IDLE' ? 'Verificar novamente' : 'Continuar tentando';
-            $('contact-link').textContent = state === 'IDLE' ? 'Pedir para ligar o ambiente' : 'Avisar que o ambiente não subiu';
+            $('start-btn').classList.toggle('hidden', state !== 'IDLE');
+            $('retry-btn').classList.toggle('hidden', state === 'IDLE');
+            $('retry-btn').textContent = 'Continuar tentando';
+            $('contact-link').textContent = state === 'IDLE' ? 'Avisar Yuri no LinkedIn' : 'Avisar que o ambiente não subiu';
             const showRunLink = showActions && run && run.html_url && state !== 'IDLE';
             $('run-link').classList.toggle('hidden', !showRunLink);
             if (showRunLink) $('run-link').href = run.html_url;
@@ -641,6 +647,48 @@
             clearTimeout(pollTimer);
             poll();
             githubCycle(); // respeita o limite de requisições
+        });
+
+        $('start-btn').addEventListener('click', async () => {
+            const btn = $('start-btn');
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = 'Disparando inicialização…';
+            btn.classList.add('opacity-70', 'cursor-not-allowed');
+
+            $('progress-text').textContent = 'Solicitando início do ambiente…';
+
+            try {
+                const res = await fetch(DEPLOY_TRIGGER_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+
+                if (!res.ok) {
+                    throw new Error(`Servidor respondeu ${res.status}`);
+                }
+
+                $('progress-text').textContent = 'Deploy solicitado! Verificando pipeline…';
+                showCopyFeedback('Inicialização solicitada com sucesso!');
+
+                // Força busca imediata de novo run no GitHub Actions e reinicia o polling
+                lastDiscovery = 0;
+                limitedUntil = 0;
+                retryHiddenUntil = Date.now() + 60000;
+                $('delay-actions').classList.add('hidden');
+                clearTimeout(pollTimer);
+                clearTimeout(githubTimer);
+                poll();
+                githubCycle();
+            } catch (err) {
+                console.error('Falha ao acionar deploy:', err);
+                $('progress-text').textContent = 'Não foi possível ligar automaticamente. Tente novamente.';
+                showCopyFeedback('Erro ao acionar inicialização.');
+                btn.disabled = false;
+                btn.textContent = originalText;
+                btn.classList.remove('opacity-70', 'cursor-not-allowed');
+            }
         });
 
         // ---------- copiar perguntas ----------

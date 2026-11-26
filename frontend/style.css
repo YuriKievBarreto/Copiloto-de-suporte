@@ -96,6 +96,22 @@ body {
   background-color: var(--accent-emerald);
 }
 
+.status-indicator.offline {
+  color: var(--accent-amber);
+}
+
+.status-indicator.offline::before {
+  background-color: var(--accent-amber);
+}
+
+.status-indicator.error {
+  color: var(--accent-rose);
+}
+
+.status-indicator.error::before {
+  background-color: var(--accent-rose);
+}
+
 .secondary-btn {
   background: transparent;
   border: 1px solid var(--border-color);

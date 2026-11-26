@@ -1,4 +1,6 @@
 const API_URL = 'https://dsi8s18du8.execute-api.us-east-1.amazonaws.com/prod/chat/stream';
+const HEALTH_URL = 'https://dsi8s18du8.execute-api.us-east-1.amazonaws.com/prod/health';
+const WAIT_PAGE_URL = '../index.html';
 
 const form = document.getElementById('chat-form');
 const input = document.getElementById('message-input');
@@ -6,6 +8,7 @@ const sendBtn = document.getElementById('send-btn');
 const messagesEl = document.getElementById('messages-container');
 const feedEl = document.getElementById('workflow-feed');
 const badgeEl = document.getElementById('workflow-badge');
+const backendStatusEl = document.getElementById('backend-status');
 
 const WELCOME_HTML = messagesEl.innerHTML;
 const EMPTY_HTML = feedEl.innerHTML;
@@ -411,7 +414,22 @@ async function sendMessage() {
   } catch (err) {
     setBadge('failed', 'Erro');
     addWorkflowItem({ kind: 'failed', icon: '✖', title: 'Falha de conexão', desc: err.message });
-    addMessage('assistant', '⚠️ Não foi possível conectar ao backend.');
+
+    if (backendStatusEl) {
+      backendStatusEl.className = 'status-indicator offline';
+      backendStatusEl.textContent = 'Backend Desligado / Inacessível';
+    }
+
+    addMessage(
+      'assistant',
+      '⚠️ **O backend deste projeto está desligado no momento** (para evitar custos ociosos na AWS).\n\n' +
+      '⏳ Você será redirecionado para a **página de inicialização** em instantes para acompanhar ou solicitar que o ambiente seja ligado…\n\n' +
+      `👉 Ou [clique aqui para ir para a página de espera agora](${WAIT_PAGE_URL})`
+    );
+
+    setTimeout(() => {
+      window.location.replace(WAIT_PAGE_URL);
+    }, 4500);
   } finally {
     busy = false;
     sendBtn.disabled = false;
@@ -445,3 +463,23 @@ document.getElementById('clear-workflow-btn').addEventListener('click', () => {
   currentGroup = null;
   setBadge('idle', 'Aguardando');
 });
+
+// ---------- verificação inicial de conexão ----------
+async function checkInitialHealth() {
+  if (!backendStatusEl) return;
+  try {
+    const res = await fetch(HEALTH_URL, { cache: 'no-store' });
+    if (res.ok) {
+      backendStatusEl.className = 'status-indicator online';
+      backendStatusEl.textContent = 'Conectado ao Backend';
+    } else {
+      backendStatusEl.className = 'status-indicator offline';
+      backendStatusEl.textContent = 'Backend Offline';
+    }
+  } catch {
+    backendStatusEl.className = 'status-indicator offline';
+    backendStatusEl.textContent = 'Backend Offline';
+  }
+}
+
+checkInitialHealth();
